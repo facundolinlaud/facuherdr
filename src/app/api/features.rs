@@ -5,7 +5,7 @@ use crate::api::schema::{
     FeatureMoveParams, FeatureRenameParams, FeatureStartAgentParams, FeatureTarget, ResponseResult,
 };
 use crate::app::features::FeatureError;
-use crate::app::{App, Mode};
+use crate::app::App;
 
 use super::responses::{encode_error, encode_success};
 
@@ -96,7 +96,7 @@ impl App {
         encode_success(id, ResponseResult::Ok {})
     }
 
-    /// Opens a shell tab, types the configured agent command into it, and files
+    /// Opens a new space, types the configured agent command into it, and files
     /// the pane under the chosen feature. A feature created by this call is
     /// removed again when the agent cannot be started.
     pub(super) fn handle_feature_start_agent(
@@ -121,7 +121,7 @@ impl App {
                 Err(error) => return feature_error(id, error),
             },
         };
-        let (tab_idx, pane_id) = match self.open_agent_tab(ws_idx) {
+        let (agent_ws_idx, pane_id) = match self.open_agent_space(ws_idx) {
             Ok(opened) => opened,
             Err(err) => {
                 if created_feature {
@@ -135,11 +135,9 @@ impl App {
         let _ = self
             .state
             .assign_pane_to_feature(pane_id, Some(&feature_id), None);
-        self.state.switch_workspace_tab(ws_idx, tab_idx);
-        self.state.mode = Mode::Terminal;
         self.schedule_session_save();
-        self.emit_tab_created_events(ws_idx, tab_idx);
-        match self.public_pane_id(ws_idx, pane_id) {
+        self.emit_workspace_open_events(agent_ws_idx);
+        match self.public_pane_id(agent_ws_idx, pane_id) {
             Some(pane_id) => encode_success(
                 id,
                 ResponseResult::FeatureAgentStarted {
@@ -151,19 +149,26 @@ impl App {
         }
     }
 
-    fn open_agent_tab(&mut self, ws_idx: usize) -> std::io::Result<(usize, crate::layout::PaneId)> {
-        let tab_idx = self.create_shell_tab(ws_idx, None, Vec::new())?;
-        let pane_id = self.state.workspaces[ws_idx].tabs[tab_idx].root_pane;
+    /// Opens a focused space that starts where `source_ws_idx` would start a
+    /// new space, types the configured agent command into its shell, and
+    /// returns the space index and its root pane.
+    fn open_agent_space(
+        &mut self,
+        source_ws_idx: usize,
+    ) -> std::io::Result<(usize, crate::layout::PaneId)> {
+        let cwd = self.resolved_new_workspace_cwd_from(source_ws_idx);
+        let ws_idx = self.create_workspace_with_launch_env(cwd, true, Vec::new())?;
+        let pane_id = self.state.workspaces[ws_idx].tabs[0].root_pane;
         let runtime = self
             .state
             .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
-            .ok_or_else(|| std::io::Error::other("new agent tab has no terminal"))?;
+            .ok_or_else(|| std::io::Error::other("new agent space has no terminal"))?;
         let command = self.state.new_agent_command.clone();
         let bytes = crate::app::api_helpers::encode_api_submission(runtime, &command);
         runtime
             .try_send_bytes(Bytes::from(bytes))
             .map_err(|err| std::io::Error::other(err.to_string()))?;
-        Ok((tab_idx, pane_id))
+        Ok((ws_idx, pane_id))
     }
 }
 

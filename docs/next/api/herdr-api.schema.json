@@ -2280,6 +2280,7 @@
               "$ref": "#/schemas/request/$defs/FeatureChoice"
             },
             "workspace_id": {
+              "description": "Space the new agent's space takes its starting directory from.",
               "type": "string"
             }
           },

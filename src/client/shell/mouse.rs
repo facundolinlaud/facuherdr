@@ -1889,6 +1889,23 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
+                let agent_pane_id = self
+                    .hits
+                    .feature_panel_rows
+                    .iter()
+                    .find_map(|(rect, item)| match item {
+                        super::feature_panel::FeaturePanelItem::Agent { pane_id, .. }
+                            if super::contains(*rect, point) =>
+                        {
+                            Some(pane_id.clone())
+                        }
+                        _ => None,
+                    });
+                if let Some(pane_id) = agent_pane_id {
+                    self.open_pane_context_menu(pane_id, mouse.column, mouse.row);
+                    outcome.repaint = true;
+                    return;
+                }
                 let feature_id = self
                     .hits
                     .feature_panel_rows

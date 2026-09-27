@@ -136,7 +136,8 @@ pub(crate) fn resolved_token_spans(
             | ResolvedTokenKind::Agent(text)
             | ResolvedTokenKind::TerminalTitle(text)
             | ResolvedTokenKind::Branch(text)
-            | ResolvedTokenKind::Custom(text) => display_width(text),
+            | ResolvedTokenKind::Custom(text)
+            | ResolvedTokenKind::Label(text) => display_width(text),
             _ => 0,
         })
         .collect::<Vec<_>>();
@@ -231,10 +232,12 @@ pub(crate) fn resolved_token_spans(
                 truncate_end(text, budgets[index]),
                 apply_token_style(state_text_style, token.style),
             )),
-            ResolvedTokenKind::Workspace(text) => spans.push(Span::styled(
-                truncate_end(text, budgets[index]),
-                apply_token_style(workspace_style, token.style),
-            )),
+            ResolvedTokenKind::Workspace(text) | ResolvedTokenKind::Label(text) => {
+                spans.push(Span::styled(
+                    truncate_end(text, budgets[index]),
+                    apply_token_style(workspace_style, token.style),
+                ))
+            }
             ResolvedTokenKind::Machine(text)
             | ResolvedTokenKind::Tab(text)
             | ResolvedTokenKind::Pane(text)

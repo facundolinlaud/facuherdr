@@ -20,8 +20,13 @@ pub(crate) enum ResolvedTokenKind {
     Agent(String),
     TerminalTitle(String),
     Branch(String),
-    GitStatus { ahead: usize, behind: usize },
+    GitStatus {
+        ahead: usize,
+        behind: usize,
+    },
     Custom(String),
+    /// A row's primary name, styled like the workspace name.
+    Label(String),
 }
 
 impl ResolvedTokenKind {
@@ -35,7 +40,8 @@ impl ResolvedTokenKind {
             | Self::Agent(value)
             | Self::TerminalTitle(value)
             | Self::Branch(value)
-            | Self::Custom(value) => Some(value),
+            | Self::Custom(value)
+            | Self::Label(value) => Some(value),
             Self::StateIcon | Self::GitStatus { .. } => None,
         }
     }

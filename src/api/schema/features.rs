@@ -44,6 +44,7 @@ pub struct FeatureInheritParams {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct FeatureStartAgentParams {
+    /// Space the new agent's space takes its starting directory from.
     pub workspace_id: String,
     pub feature: FeatureChoice,
 }

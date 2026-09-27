@@ -13,12 +13,14 @@ use ratatui::{
     style::{Modifier, Style},
 };
 
-use super::agent_sidebar::{agent_row, render_agent_list, render_agent_row, AgentRow};
+use super::agent_sidebar::{render_agent_list, render_agent_row, AgentRow};
 use super::*;
 use crate::api::schema::{AgentStatus, FeatureAssignPaneParams, FeatureMoveParams, Method};
 use crate::protocol::ClientShellFeature;
 
 const AGENT_INDENT: u16 = 2;
+/// Metadata token an agent reports to label its account, e.g. `facundolilao (45%)`.
+const ACCOUNT_TOKEN: &str = "account";
 
 /// What a panel row stands for. Hit-testing and drag and drop use it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -157,9 +159,60 @@ fn section_fold(
     }
 }
 
+/// The agent's name: the pane name the user set, else the agent's own name,
+/// else the name of the space it lives in.
+fn agent_name(snapshot: &ClientShellSnapshot, agent: &crate::protocol::ClientShellAgent) -> String {
+    let pane_name = snapshot
+        .panes
+        .iter()
+        .find(|pane| pane.pane_id == agent.pane_id)
+        .and_then(|pane| pane.label.clone());
+    let space_name = || {
+        snapshot
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.workspace_id == agent.workspace_id)
+            .map(|workspace| workspace.label.clone())
+            .unwrap_or_default()
+    };
+    pane_name
+        .or_else(|| agent.name.clone())
+        .unwrap_or_else(space_name)
+}
+
+/// Status icon and name, with the reported account label on a second line
+/// when the agent has one.
+fn feature_agent_row(snapshot: &ClientShellSnapshot, pane_id: &str) -> Option<AgentRow> {
+    use crate::ui::{ResolvedToken, ResolvedTokenKind};
+
+    let agent = snapshot
+        .agents
+        .iter()
+        .find(|agent| agent.pane_id == pane_id)?;
+    let token = |kind| ResolvedToken {
+        kind,
+        style: Default::default(),
+    };
+    let name_line = vec![
+        token(ResolvedTokenKind::StateIcon),
+        token(ResolvedTokenKind::Label(agent_name(snapshot, agent))),
+    ];
+    let account_line = agent
+        .tokens
+        .iter()
+        .find(|(name, _)| name == ACCOUNT_TOKEN)
+        .map(|(_, value)| vec![token(ResolvedTokenKind::Custom(value.clone()))]);
+    let rows = std::iter::once(name_line).chain(account_line).collect();
+    Some(AgentRow {
+        pane_id: agent.pane_id.clone(),
+        status: agent.agent_status,
+        focused: agent.focused,
+        rows,
+    })
+}
+
 pub(super) fn feature_panel_entries(
     snapshot: &ClientShellSnapshot,
-    config: &ClientShellConfig,
     collapsed: &HashSet<FeatureSection>,
 ) -> Vec<FeaturePanelEntry> {
     let agent_entries = |agent_ids: Vec<&String>, feature_id: Option<&String>, fold| {
@@ -172,7 +225,7 @@ pub(super) fn feature_panel_entries(
             .filter_map(|pane_id| {
                 Some(FeaturePanelEntry::Agent {
                     feature_id: feature_id.cloned(),
-                    row: agent_row(snapshot, pane_id, config, None)?,
+                    row: feature_agent_row(snapshot, pane_id)?,
                 })
             })
             .collect::<Vec<_>>()
@@ -216,7 +269,7 @@ pub(super) fn render_feature_panel_body(
     drop_indicator_row: Option<u16>,
     hits: &mut ShellHitMap,
 ) {
-    let entries = feature_panel_entries(snapshot, config, collapsed);
+    let entries = feature_panel_entries(snapshot, collapsed);
     render_agent_list(
         buffer,
         area,
@@ -687,8 +740,7 @@ mod tests {
             feature("empty", &[]),
         ];
 
-        let config = ClientShellConfig::from_config(&crate::config::Config::default());
-        let items = feature_panel_entries(&snapshot, &config, &HashSet::new())
+        let items = feature_panel_entries(&snapshot, &HashSet::new())
             .iter()
             .map(FeaturePanelEntry::item)
             .collect::<Vec<_>>();
@@ -716,14 +768,11 @@ mod tests {
     ) -> (Vec<String>, ShellHitMap, ClientShellConfig) {
         let mut snapshot = snapshot_with_agents(&["pane_1", "pane_2"]);
         snapshot.agents[1].agent_status = AgentStatus::Working;
+        snapshot.agents[1].tokens = vec![("account".into(), "facundolilao (45%)".into())];
         snapshot.features = vec![feature("feature-1", &["pane_2"])];
         snapshot.features[0].name = "checkout".into();
-        let mut config = ClientShellConfig::from_config(&crate::config::Config::default());
-        config.agents.rows = vec![vec![
-            crate::config::AgentSidebarToken::StateIcon,
-            crate::config::AgentSidebarToken::Agent,
-        ]];
-        let area = Rect::new(0, 0, 24, 10);
+        let config = ClientShellConfig::from_config(&crate::config::Config::default());
+        let area = Rect::new(0, 0, 36, 10);
         let mut buffer = Buffer::empty(area);
         let mut hits = ShellHitMap::default();
 
@@ -751,7 +800,7 @@ mod tests {
     }
 
     fn padded(left: &str, right: &str) -> String {
-        let width = 24 - left.chars().count() - right.chars().count();
+        let width = 36 - left.chars().count() - right.chars().count();
         format!("{left}{}{right}", " ".repeat(width))
     }
 
@@ -763,8 +812,9 @@ mod tests {
         let working = status_icon(AgentStatus::Working, config.status_indicators);
         assert_eq!(lines[0], padded(" checkout", "▾"));
         assert_eq!(lines[1], format!("   {working} pane_2"));
-        assert_eq!(lines[2], padded(" ungrouped", "▾"));
-        assert_eq!(lines[3], format!("   {idle} pane_1"));
+        assert_eq!(lines[2], "     facundolilao (45%)");
+        assert_eq!(lines[3], padded(" ungrouped", "▾"));
+        assert_eq!(lines[4], format!("   {idle} pane_1"));
         assert_eq!(hits.agents.len(), 2);
         assert_eq!(hits.feature_section_toggles.len(), 2);
     }
@@ -823,5 +873,23 @@ mod tests {
                 status: None,
             }
         );
+    }
+
+    #[test]
+    fn agent_name_prefers_pane_name_then_agent_name_then_location() {
+        let mut snapshot = snapshot_with_agents(&["pane_1"]);
+        snapshot.panes[0].pane_id = "pane_1".into();
+        snapshot.panes[0].label = Some("checkout-api".into());
+        let agent = snapshot.agents[0].clone();
+        assert_eq!(agent_name(&snapshot, &agent), "checkout-api");
+
+        snapshot.panes[0].label = None;
+        assert_eq!(agent_name(&snapshot, &agent), "pane_1");
+
+        let unnamed = crate::protocol::ClientShellAgent {
+            name: None,
+            ..agent
+        };
+        assert_eq!(agent_name(&snapshot, &unnamed), "client-shell");
     }
 }
