@@ -62,42 +62,12 @@ impl App {
         } else {
             return encode_error(id, "workspace_not_found", "no active workspace");
         };
-        let cwd = cwd.map(PathBuf::from).unwrap_or_else(|| {
-            self.resolve_new_terminal_cwd(self.focused_pane_cwd_in_workspace(ws_idx))
-        });
-        let (rows, cols) = self.state.estimate_pane_size();
-        let default_shell = self.state.default_shell.clone();
-        let scrollback_limit_bytes = self.state.pane_scrollback_limit_bytes;
-        let host_terminal_theme = self.state.host_terminal_theme;
-        let host_terminal_appearance = self.state.host_terminal_appearance;
         let extra_env = match super::env::normalize_launch_env(env) {
             Ok(env) => env,
             Err((code, message)) => return encode_error(id, &code, message),
         };
-        let result = self
-            .state
-            .workspaces
-            .get_mut(ws_idx)
-            .ok_or_else(|| std::io::Error::other("workspace disappeared"))
-            .and_then(|ws| {
-                ws.create_tab(
-                    rows,
-                    cols,
-                    cwd,
-                    scrollback_limit_bytes,
-                    host_terminal_theme,
-                    host_terminal_appearance,
-                    crate::pane::PaneShellConfig::new(&default_shell, self.state.shell_mode),
-                    extra_env,
-                )
-            });
-        match result {
-            Ok((tab_idx, terminal, runtime)) => {
-                self.terminal_runtimes.insert(terminal.id.clone(), runtime);
-                self.state.terminals.insert(terminal.id.clone(), terminal);
-                self.state.remove_alias_shadowed_by_new_pane(
-                    self.state.workspaces[ws_idx].tabs[tab_idx].root_pane,
-                );
+        match self.create_shell_tab(ws_idx, cwd.map(PathBuf::from), extra_env) {
+            Ok(tab_idx) => {
                 if let Some(label) = label {
                     let workspace_id = self.state.workspaces[ws_idx].id.clone();
                     let tab_id = self.public_tab_id(ws_idx, tab_idx).unwrap_or_else(|| {
@@ -127,6 +97,47 @@ impl App {
             }
             Err(err) => encode_error(id, "tab_create_failed", err.to_string()),
         }
+    }
+
+    /// Opens a tab running the default shell and registers its terminal.
+    /// Returns the new tab index. Focus, events, and saving are left to the caller.
+    pub(super) fn create_shell_tab(
+        &mut self,
+        ws_idx: usize,
+        cwd: Option<PathBuf>,
+        extra_env: Vec<(String, String)>,
+    ) -> std::io::Result<usize> {
+        let cwd = cwd.unwrap_or_else(|| {
+            self.resolve_new_terminal_cwd(self.focused_pane_cwd_in_workspace(ws_idx))
+        });
+        let (rows, cols) = self.state.estimate_pane_size();
+        let default_shell = self.state.default_shell.clone();
+        let scrollback_limit_bytes = self.state.pane_scrollback_limit_bytes;
+        let host_terminal_theme = self.state.host_terminal_theme;
+        let host_terminal_appearance = self.state.host_terminal_appearance;
+        let (tab_idx, terminal, runtime) = self
+            .state
+            .workspaces
+            .get_mut(ws_idx)
+            .ok_or_else(|| std::io::Error::other("workspace disappeared"))
+            .and_then(|ws| {
+                ws.create_tab(
+                    rows,
+                    cols,
+                    cwd,
+                    scrollback_limit_bytes,
+                    host_terminal_theme,
+                    host_terminal_appearance,
+                    crate::pane::PaneShellConfig::new(&default_shell, self.state.shell_mode),
+                    extra_env,
+                )
+            })?;
+        self.terminal_runtimes.insert(terminal.id.clone(), runtime);
+        self.state.terminals.insert(terminal.id.clone(), terminal);
+        self.state.remove_alias_shadowed_by_new_pane(
+            self.state.workspaces[ws_idx].tabs[tab_idx].root_pane,
+        );
+        Ok(tab_idx)
     }
 
     pub(super) fn handle_tab_focus(&mut self, id: String, target: TabTarget) -> String {
@@ -243,7 +254,7 @@ impl App {
             let workspace = self.workspace_info(ws_idx);
             self.state.selected = ws_idx;
             self.state.close_selected_workspace();
-            self.state.remove_plugin_pane_records(pane_ids);
+            self.state.forget_closed_pane_records(pane_ids);
             self.shutdown_detached_terminal_runtimes();
             self.emit_event(EventEnvelope {
                 event: EventKind::TabClosed,
@@ -272,7 +283,7 @@ impl App {
                 format!("tab {} could not be closed", target.tab_id),
             );
         }
-        self.state.remove_plugin_pane_records(pane_ids);
+        self.state.forget_closed_pane_records(pane_ids);
         self.state.remove_unattached_terminal_ids(terminal_ids);
         self.shutdown_detached_terminal_runtimes();
         self.schedule_session_save();

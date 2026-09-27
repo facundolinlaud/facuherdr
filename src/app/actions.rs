@@ -646,7 +646,7 @@ impl AppState {
         }
     }
 
-    pub(crate) fn remove_plugin_pane_records(
+    pub(crate) fn forget_closed_pane_records(
         &mut self,
         pane_ids: impl IntoIterator<Item = PaneId>,
     ) {
@@ -683,7 +683,7 @@ impl AppState {
             .active
             .and_then(|idx| self.workspaces.get(idx))
             .map(|ws| ws.id.clone());
-        self.remove_plugin_pane_records(pane_ids);
+        self.forget_closed_pane_records(pane_ids);
         for idx in close_indices.iter().rev() {
             self.workspaces.remove(*idx);
         }
@@ -957,7 +957,7 @@ impl AppState {
         let should_close_workspace = active
             .and_then(|i| self.workspaces.get_mut(i))
             .is_some_and(|ws| ws.close_focused());
-        self.remove_plugin_pane_records(pane_ids);
+        self.forget_closed_pane_records(pane_ids);
         if should_close_workspace {
             if let Some(active) = active {
                 self.selected = active;
@@ -1015,7 +1015,7 @@ impl AppState {
             let closing_tab_id =
                 public_tab_id_for_index(ws, ws.active_tab).unwrap_or_else(|| workspace_id.clone());
             ws.close_active_tab();
-            self.remove_plugin_pane_records(pane_ids);
+            self.forget_closed_pane_records(pane_ids);
             self.remove_unattached_terminal_ids(terminal_ids);
             crate::logging::tab_closed(&workspace_id, &closing_tab_id);
         }
@@ -2024,7 +2024,7 @@ impl AppState {
 
     fn handle_pane_died(&mut self, pane_id: PaneId) {
         self.pending_agent_notifications.remove(&pane_id);
-        self.remove_plugin_pane_records([pane_id]);
+        self.forget_closed_pane_records([pane_id]);
         let ws_idx = self
             .workspaces
             .iter()
