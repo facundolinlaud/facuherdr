@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 mod agent_view;
 mod agents;
 mod env;
+mod features;
 mod integrations;
 mod layouts;
 mod panes;
@@ -1078,6 +1079,19 @@ impl App {
             Method::TabRename(params) => return self.handle_tab_rename(request.id, params),
             Method::TabMove(params) => return self.handle_tab_move(request.id, params),
             Method::TabClose(target) => return self.handle_tab_close(request.id, target),
+            Method::FeatureCreate(params) => return self.handle_feature_create(request.id, params),
+            Method::FeatureRename(params) => return self.handle_feature_rename(request.id, params),
+            Method::FeatureDelete(target) => return self.handle_feature_delete(request.id, target),
+            Method::FeatureMove(params) => return self.handle_feature_move(request.id, params),
+            Method::FeatureAssignPane(params) => {
+                return self.handle_feature_assign_pane(request.id, params);
+            }
+            Method::FeatureStartAgent(params) => {
+                return self.handle_feature_start_agent(request.id, params);
+            }
+            Method::FeatureInherit(params) => {
+                return self.handle_feature_inherit(request.id, params);
+            }
             Method::AgentList(_) => return self.handle_agent_list(request.id),
             Method::AgentGet(target) => return self.handle_agent_get(request.id, target),
             Method::AgentFocus(target) => return self.handle_agent_focus(request.id, target),

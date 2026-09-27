@@ -436,6 +436,8 @@ pub(crate) fn render_sidebar(
         snapshot,
         config,
         state.agent_scroll,
+        state.collapsed_feature_sections,
+        state.feature_drop_indicator_row,
         hits,
     );
 

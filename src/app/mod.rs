@@ -15,6 +15,7 @@ mod api_helpers;
 pub(crate) use api_helpers::limit_snapshot_lines;
 mod creation;
 mod custom_commands;
+pub(crate) mod features;
 mod git_refresh;
 mod ids;
 mod popup;
@@ -191,7 +192,9 @@ fn agent_panel_sort_from_config(
     sort: crate::config::AgentPanelSortConfig,
 ) -> state::AgentPanelSort {
     match sort {
-        crate::config::AgentPanelSortConfig::Spaces => state::AgentPanelSort::Spaces,
+        // Feature grouping is client presentation; the server keeps its workspace order.
+        crate::config::AgentPanelSortConfig::Spaces
+        | crate::config::AgentPanelSortConfig::Features => state::AgentPanelSort::Spaces,
         crate::config::AgentPanelSortConfig::Priority => state::AgentPanelSort::Priority,
     }
 }
@@ -374,7 +377,7 @@ impl App {
         let session_writer = Arc::new(std::sync::Mutex::new(crate::persist::SessionWriter::new(
             policy.restore_session && snapshot.is_none(),
         )));
-        let (workspaces, active, selected) = if let Some(snap) = snapshot {
+        let (workspaces, active, selected, features) = if let Some(snap) = snapshot {
             let history = config
                 .experimental
                 .pane_history
@@ -397,15 +400,16 @@ impl App {
             restored_terminal_runtimes = terminal_runtimes.into();
             if ws.is_empty() {
                 crate::logging::session_restored(0, "empty");
-                (Vec::new(), None, 0)
+                (Vec::new(), None, 0, Vec::new())
             } else {
                 crate::logging::session_restored(ws.len(), "ok");
                 let active = snap.active.filter(|&i| i < ws.len());
                 let selected = snap.selected.min(ws.len().saturating_sub(1));
-                (ws, active, selected)
+                let features = crate::persist::restore_features(&snap.features, &ws);
+                (ws, active, selected, features)
             }
         } else {
-            (Vec::new(), None, 0)
+            (Vec::new(), None, 0, Vec::new())
         };
 
         let agent_panel_sort = agent_panel_sort_from_config(config.ui.agent_panel_sort);
@@ -501,6 +505,7 @@ impl App {
             cjk_ime_cursor_shape: config.experimental.cjk_ime_cursor_shape.to_decscusr(),
             kitty_graphics_enabled: config.kitty_graphics_enabled(),
             default_shell: config.terminal.default_shell.clone(),
+            new_agent_command: config.new_agent_command(),
             shell_mode: config.terminal.shell_mode,
             new_terminal_cwd: config.terminal.new_cwd.clone(),
             pane_scrollback_limit_bytes: config.advanced.scrollback_limit_bytes,
@@ -525,6 +530,7 @@ impl App {
             host_cell_size: crate::kitty_graphics::HostCellSize::default(),
             session_dirty: false,
             terminal_runtime_shutdowns: Vec::new(),
+            features,
         };
 
         state.terminals = restored_terminals;
@@ -663,6 +669,7 @@ impl App {
         let pane_id_aliases = crate::persist::handoff_pane_aliases(snapshot, &workspaces);
 
         app.state.pane_id_aliases = pane_id_aliases;
+        app.state.features = crate::persist::restore_features(&snapshot.features, &workspaces);
         app.state.workspaces = workspaces;
         app.state.terminals = terminals;
         app.terminal_runtimes = runtimes.into();
@@ -940,6 +947,7 @@ impl App {
             self.state.default_shell = config.terminal.default_shell.clone();
             self.state.shell_mode = config.terminal.shell_mode;
             self.state.new_terminal_cwd = config.terminal.new_cwd.clone();
+            self.state.new_agent_command = config.new_agent_command();
         }
 
         if !invalid_section("worktrees") {

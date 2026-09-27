@@ -15,6 +15,12 @@ const ENDPOINT_RESPONSE_CHUNK_BYTES: usize = 512 * 1024;
 const CLIENT_SHELL_METHODS: &[&str] = &[
     "client_shell.surface.set",
     "command.invoke",
+    "feature.assign_pane",
+    "feature.create",
+    "feature.delete",
+    "feature.move",
+    "feature.rename",
+    "feature.start_agent",
     "integration.install",
     "integration.list",
     "layout.set_split_ratio",
@@ -297,6 +303,34 @@ mod tests {
             actual.remove("pane.link.resolve").as_deref(),
             Some("f5e4a3e01453ae7b188f127ce951c12c20e0bebcc17cc364eeb6d1a01fd5bf81")
         );
+        for (method, digest) in [
+            (
+                "feature.assign_pane",
+                "41ff082f8f0e38a37ec1b419bfebc54bae306eae788d949122129771b6456ace",
+            ),
+            (
+                "feature.create",
+                "d6c1374b42c6d58bfac74e862278b0cf5352217ca7c183c28f55c90eb2ed336f",
+            ),
+            (
+                "feature.delete",
+                "79b9012948ab47416c53d2bc1bad152cb1dfcaedce15f410b39c3035b8bc71bd",
+            ),
+            (
+                "feature.move",
+                "f7b133e64ef500009fab4be72be9a7792794d4cc67023b36f1ff205706cc6a14",
+            ),
+            (
+                "feature.rename",
+                "06fdb62861cd61dcc4b4b32545fe00c26aa3cb9a13638cb92265d49924acbb89",
+            ),
+            (
+                "feature.start_agent",
+                "5af37a581473d8abfac675152da903754a32d6de504f00f46a38e1b593932c9a",
+            ),
+        ] {
+            assert_eq!(actual.remove(method).as_deref(), Some(digest), "{method}");
+        }
 
         assert_eq!(
             actual, expected,

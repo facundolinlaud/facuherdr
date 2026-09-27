@@ -34,6 +34,9 @@ pub(super) fn ordered_agent_pane_ids(
             .cloned()
             .collect();
     }
+    if sort == crate::config::AgentPanelSortConfig::Features {
+        return super::feature_panel::feature_ordered_agent_pane_ids(snapshot);
+    }
     let mut agents = snapshot.agents.iter().collect::<Vec<_>>();
     if sort == crate::config::AgentPanelSortConfig::Priority {
         agents.sort_by_key(|agent| {
@@ -55,6 +58,8 @@ pub(super) fn render_agent_panel(
     snapshot: &ClientShellSnapshot,
     config: &ClientShellConfig,
     agent_scroll: &mut usize,
+    collapsed_feature_sections: &std::collections::HashSet<super::feature_panel::FeatureSection>,
+    feature_drop_indicator_row: Option<u16>,
     hits: &mut ShellHitMap,
 ) {
     if !render_agent_panel_header(
@@ -64,6 +69,21 @@ pub(super) fn render_agent_panel(
         config,
         hits,
     ) {
+        return;
+    }
+    let show_features = snapshot.agent_view_label.is_none()
+        && config.agent_panel_sort == crate::config::AgentPanelSortConfig::Features;
+    if show_features {
+        super::feature_panel::render_feature_panel_body(
+            buffer,
+            area,
+            snapshot,
+            config,
+            agent_scroll,
+            collapsed_feature_sections,
+            feature_drop_indicator_row,
+            hits,
+        );
         return;
     }
 
@@ -121,6 +141,7 @@ pub(super) fn render_agent_panel_header(
     let sort_label = agent_view_label.unwrap_or(match config.agent_panel_sort {
         crate::config::AgentPanelSortConfig::Spaces => "grouped",
         crate::config::AgentPanelSortConfig::Priority => "priority",
+        crate::config::AgentPanelSortConfig::Features => "features",
     });
     let sort_width = display_width(sort_label).min(area.width as usize) as u16;
     let sort_rect = Rect::new(

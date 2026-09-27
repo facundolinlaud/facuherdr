@@ -523,3 +523,71 @@ fn close_confirmation_error_becomes_client_owned_overlay_and_stable_group_close(
             if params.workspace_id == "ws_1" && params.close_group
     ));
 }
+
+#[test]
+fn feature_header_menu_starts_an_agent_in_that_feature() {
+    let mut config = ClientShellConfig::from_config(&Config::default());
+    config.agent_panel_sort = crate::config::AgentPanelSortConfig::Features;
+    let mut snapshot = snapshot();
+    snapshot.features = vec![crate::protocol::ClientShellFeature {
+        feature_id: "feature-1".into(),
+        name: "checkout".into(),
+        pane_ids: Vec::new(),
+    }];
+    let mut state = ClientShellState::new(config);
+    state.set_snapshot(Box::new(snapshot));
+    state.set_pane_surface(surface());
+    state.compose(106, 30).expect("shell frame");
+    let header = state
+        .hits
+        .feature_panel_rows
+        .iter()
+        .find(|(_, item)| {
+            *item
+                == super::super::feature_panel::FeaturePanelItem::Feature {
+                    feature_id: "feature-1".into(),
+                }
+        })
+        .map(|(rect, _)| *rect)
+        .expect("feature header row");
+
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Right),
+        column: header.x + 1,
+        row: header.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    let labels = match state.overlay.as_ref() {
+        Some(ClientShellOverlay::ContextMenu(menu)) => menu
+            .items()
+            .iter()
+            .map(|item| item.label)
+            .collect::<Vec<_>>(),
+        _ => panic!("feature context menu"),
+    };
+    assert_eq!(labels, ["New agent", "Rename", "Collapse", "Delete"]);
+    state.compose(106, 30).expect("feature context menu");
+    let new_agent = state.hits.context_menu_rows[0].0;
+    let outcome =
+        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: new_agent.x + 1,
+            row: new_agent.y,
+            modifiers: KeyModifiers::empty(),
+        })]);
+
+    let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+        panic!("new agent should use the endpoint API");
+    };
+    assert_eq!(
+        request.method,
+        crate::api::schema::Method::FeatureStartAgent(
+            crate::api::schema::FeatureStartAgentParams {
+                workspace_id: "ws_1".into(),
+                feature: crate::api::schema::FeatureChoice::Existing {
+                    feature_id: "feature-1".into(),
+                },
+            }
+        )
+    );
+}

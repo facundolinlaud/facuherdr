@@ -248,6 +248,8 @@ pub(super) struct ShellRenderState<'a> {
     pub(super) reveal_navigation_workspace: &'a mut bool,
     pub(super) dragged_workspace_id: Option<&'a str>,
     pub(super) workspace_drop_indicator_row: Option<u16>,
+    pub(super) feature_drop_indicator_row: Option<u16>,
+    pub(super) collapsed_feature_sections: &'a HashSet<super::feature_panel::FeatureSection>,
 }
 
 pub(super) fn render_shell(

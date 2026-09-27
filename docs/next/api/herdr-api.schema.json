@@ -2151,6 +2151,155 @@
           ],
           "type": "object"
         },
+        "FeatureAssignPaneParams": {
+          "properties": {
+            "feature_id": {
+              "description": "Target feature. Absent removes the pane from its feature.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "index": {
+              "description": "Final position within the target feature. Absent appends.",
+              "format": "uint",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id"
+          ],
+          "type": "object"
+        },
+        "FeatureChoice": {
+          "oneOf": [
+            {
+              "properties": {
+                "feature_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "const": "existing",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "feature_id"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "kind": {
+                  "const": "new",
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "name"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "FeatureCreateParams": {
+          "properties": {
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "FeatureInheritParams": {
+          "description": "Files `pane_id` under the feature that `from_pane_id` currently belongs to.\nDoes nothing when `from_pane_id` has no feature.",
+          "properties": {
+            "from_pane_id": {
+              "type": "string"
+            },
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "from_pane_id"
+          ],
+          "type": "object"
+        },
+        "FeatureMoveParams": {
+          "properties": {
+            "feature_id": {
+              "type": "string"
+            },
+            "index": {
+              "description": "Final position of the feature, clamped to the feature list.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "feature_id",
+            "index"
+          ],
+          "type": "object"
+        },
+        "FeatureRenameParams": {
+          "properties": {
+            "feature_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "feature_id",
+            "name"
+          ],
+          "type": "object"
+        },
+        "FeatureStartAgentParams": {
+          "properties": {
+            "feature": {
+              "$ref": "#/schemas/request/$defs/FeatureChoice"
+            },
+            "workspace_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "workspace_id",
+            "feature"
+          ],
+          "type": "object"
+        },
+        "FeatureTarget": {
+          "properties": {
+            "feature_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "feature_id"
+          ],
+          "type": "object"
+        },
         "IntegrationInstallParams": {
           "properties": {
             "target": {
@@ -5425,6 +5574,118 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/AgentWaitParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "feature.create",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/FeatureCreateParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "feature.rename",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/FeatureRenameParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "feature.delete",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/FeatureTarget"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "feature.move",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/FeatureMoveParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "feature.assign_pane",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/FeatureAssignPaneParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "feature.start_agent",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/FeatureStartAgentParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "feature.inherit",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/FeatureInheritParams"
             }
           },
           "required": [
@@ -9536,6 +9797,42 @@
               "required": [
                 "type",
                 "active"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "feature_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "feature_created",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "feature_id"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "feature_id": {
+                  "type": "string"
+                },
+                "pane_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "feature_agent_started",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "feature_id",
+                "pane_id"
               ],
               "type": "object"
             },

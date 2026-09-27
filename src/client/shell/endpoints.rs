@@ -486,11 +486,21 @@ impl ClientShellState {
     }
 
     pub(super) fn supports_endpoint_method(&self, method: &crate::api::schema::Method) -> bool {
+        self.supports_endpoint_method_name(crate::api::api_method_name(method))
+    }
+
+    fn supports_endpoint_method_name(&self, method: &str) -> bool {
         self.endpoints
             .iter()
             .find(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
             .and_then(|endpoint| endpoint.methods.as_ref())
-            .is_none_or(|methods| methods.contains(crate::api::api_method_name(method)))
+            .is_none_or(|methods| methods.iter().any(|candidate| candidate == method))
+    }
+
+    /// Feature groups need the endpoint's `feature.*` methods and only apply
+    /// to a single endpoint's agents panel.
+    pub(super) fn supports_feature_groups(&self) -> bool {
+        self.endpoints.len() <= 1 && self.supports_endpoint_method_name("feature.assign_pane")
     }
 
     pub(super) fn focused_tab_count(&self) -> usize {

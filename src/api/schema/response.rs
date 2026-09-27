@@ -114,6 +114,13 @@ pub enum ResponseResult {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         label: Option<String>,
     },
+    FeatureCreated {
+        feature_id: String,
+    },
+    FeatureAgentStarted {
+        feature_id: String,
+        pane_id: String,
+    },
     PaneInfo {
         pane: PaneInfo,
     },

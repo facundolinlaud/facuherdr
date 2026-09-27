@@ -954,6 +954,17 @@ pub struct ClientShellSnapshot {
     pub panes: Vec<ClientShellPane>,
     pub agents: Vec<ClientShellAgent>,
     pub commands: Vec<ClientShellCommand>,
+    /// User-defined feature groups in display order. Absent from older endpoints.
+    #[serde(default)]
+    pub features: Vec<ClientShellFeature>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientShellFeature {
+    pub feature_id: String,
+    pub name: String,
+    /// Member pane ids in display order.
+    pub pane_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2871,6 +2882,11 @@ mod tests {
                 binding_labels: vec!["prefix+z".into()],
                 action: ClientShellCommandAction::Shell,
                 description: Some("deploy".into()),
+            }],
+            features: vec![ClientShellFeature {
+                feature_id: "feature-1".into(),
+                name: "checkout".into(),
+                pane_ids: vec!["w1:p1".into()],
             }],
         }));
         let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();

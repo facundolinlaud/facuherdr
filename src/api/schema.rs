@@ -4,6 +4,7 @@ pub mod agents;
 pub mod commands;
 pub mod common;
 pub mod events;
+pub mod features;
 pub mod integrations;
 pub mod panes;
 pub mod plugins;
@@ -18,6 +19,7 @@ pub use agents::*;
 pub use commands::*;
 pub use common::*;
 pub use events::*;
+pub use features::*;
 pub use integrations::*;
 pub use panes::*;
 pub use plugins::*;
@@ -139,6 +141,20 @@ pub enum Method {
     AgentPrompt(AgentPromptParams),
     #[serde(rename = "agent.wait")]
     AgentWait(AgentWaitParams),
+    #[serde(rename = "feature.create")]
+    FeatureCreate(FeatureCreateParams),
+    #[serde(rename = "feature.rename")]
+    FeatureRename(FeatureRenameParams),
+    #[serde(rename = "feature.delete")]
+    FeatureDelete(FeatureTarget),
+    #[serde(rename = "feature.move")]
+    FeatureMove(FeatureMoveParams),
+    #[serde(rename = "feature.assign_pane")]
+    FeatureAssignPane(FeatureAssignPaneParams),
+    #[serde(rename = "feature.start_agent")]
+    FeatureStartAgent(FeatureStartAgentParams),
+    #[serde(rename = "feature.inherit")]
+    FeatureInherit(FeatureInheritParams),
     #[serde(rename = "pane.split")]
     PaneSplit(PaneSplitParams),
     #[serde(rename = "pane.swap")]

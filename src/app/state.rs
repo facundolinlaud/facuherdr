@@ -849,6 +849,7 @@ pub struct AppState {
     pub cjk_ime_cursor_shape: u8,
     pub kitty_graphics_enabled: bool,
     pub default_shell: String,
+    pub new_agent_command: String,
     pub shell_mode: crate::config::ShellModeConfig,
     pub new_terminal_cwd: NewTerminalCwdConfig,
     pub pane_scrollback_limit_bytes: usize,
@@ -889,6 +890,8 @@ pub struct AppState {
     /// Terminal runtimes that should be shut down by the app/runtime layer
     /// after state has detached their terminal metadata.
     pub(crate) terminal_runtime_shutdowns: Vec<crate::terminal::TerminalId>,
+    /// User-defined feature groups of panes, in display order.
+    pub(crate) features: Vec<super::features::Feature>,
 }
 
 impl AppState {
@@ -1071,6 +1074,7 @@ impl AppState {
             cjk_ime_cursor_shape: 2, // steady_block
             kitty_graphics_enabled: false,
             default_shell: String::new(),
+            new_agent_command: "claude".to_string(),
             shell_mode: crate::config::ShellModeConfig::Auto,
             new_terminal_cwd: NewTerminalCwdConfig::Follow,
             pane_scrollback_limit_bytes: crate::config::DEFAULT_SCROLLBACK_LIMIT_BYTES,
@@ -1106,6 +1110,7 @@ impl AppState {
             host_cell_size: crate::kitty_graphics::HostCellSize::default(),
             session_dirty: false,
             terminal_runtime_shutdowns: Vec::new(),
+            features: Vec::new(),
         }
     }
 
@@ -1163,6 +1168,12 @@ impl AppState {
             assert!(
                 self.plugin_panes.is_empty(),
                 "empty app state must not keep plugin pane records"
+            );
+            assert!(
+                self.features
+                    .iter()
+                    .all(|feature| feature.members.is_empty()),
+                "empty app state must not keep feature members"
             );
             assert!(
                 self.pending_agent_notifications.is_empty(),
@@ -1288,6 +1299,16 @@ impl AppState {
         }
         for &pane_id in self.plugin_panes.keys() {
             assert_live_pane(pane_id, "plugin pane record");
+        }
+        let mut grouped_pane_ids = std::collections::HashSet::new();
+        for feature in &self.features {
+            for &pane_id in &feature.members {
+                assert_live_pane(pane_id, &format!("feature {} member", feature.id));
+                assert!(
+                    grouped_pane_ids.insert(pane_id),
+                    "pane {pane_id:?} belongs to more than one feature"
+                );
+            }
         }
     }
 

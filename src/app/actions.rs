@@ -658,6 +658,7 @@ impl AppState {
         {
             self.previous_pane_focus = None;
         }
+        self.remove_panes_from_features(&pane_ids);
         for pane_id in pane_ids {
             self.plugin_panes.remove(&pane_id);
         }

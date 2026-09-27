@@ -77,6 +77,8 @@ impl ClientShellState {
             reveal_navigation_workspace: &mut self.reveal_navigation_workspace,
             dragged_workspace_id: None,
             workspace_drop_indicator_row: None,
+            feature_drop_indicator_row: None,
+            collapsed_feature_sections: &self.collapsed_feature_sections,
         };
         if let Some(snapshot) = local_snapshot {
             render::render_sidebar(
@@ -204,6 +206,12 @@ impl ClientShellState {
             ),
             _ => (None, None),
         };
+        let feature_drop_indicator_row = match &self.chrome_drag {
+            Some(ClientChromeDrag::FeaturePanel {
+                drop: Some(drop), ..
+            }) => Some(drop.indicator_row),
+            _ => None,
+        };
         let mut buffer = Buffer::empty(Rect::new(0, 0, cols, rows));
         self.hits = render::render_shell(
             &mut buffer,
@@ -233,6 +241,8 @@ impl ClientShellState {
                 reveal_navigation_workspace: &mut self.reveal_navigation_workspace,
                 dragged_workspace_id,
                 workspace_drop_indicator_row,
+                feature_drop_indicator_row,
+                collapsed_feature_sections: &self.collapsed_feature_sections,
             },
         );
         self.hits.panes = surface
@@ -682,6 +692,7 @@ impl ClientShellState {
                 self.hits.navigator_scroll_metrics = rendered.navigator_scroll_metrics;
                 self.hits.worktree_search = rendered.worktree_search;
                 self.hits.worktree_rows = rendered.worktree_rows;
+                self.hits.feature_picker_rows = rendered.feature_picker_rows;
                 self.hits.help_popup = rendered.help_popup;
                 self.hits.help_scrollbar = rendered.help_scrollbar;
                 self.hits.help_scroll_metrics = rendered.help_scroll_metrics;

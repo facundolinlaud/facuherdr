@@ -187,6 +187,24 @@ pub(super) fn snapshot_with_completions(
         .filter_map(|entry| app.public_pane_id(entry.ws_idx, entry.pane_id))
         .collect();
 
+    let features = app
+        .state
+        .features
+        .iter()
+        .map(|feature| protocol::ClientShellFeature {
+            feature_id: feature.id.clone(),
+            name: feature.name.clone(),
+            pane_ids: feature
+                .members
+                .iter()
+                .filter_map(|&pane_id| {
+                    let (workspace_index, _) = app.find_pane(pane_id)?;
+                    app.public_pane_id(workspace_index, pane_id)
+                })
+                .collect(),
+        })
+        .collect();
+
     let zoomed = focused_tab_id
         .as_deref()
         .and_then(|tab_id| app.parse_tab_id(tab_id))
@@ -263,6 +281,7 @@ pub(super) fn snapshot_with_completions(
         panes,
         agents,
         commands: app.client_shell_command_manifest(),
+        features,
     };
     (shell, completions)
 }

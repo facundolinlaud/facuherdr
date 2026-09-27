@@ -95,6 +95,13 @@ impl Config {
         self.onboarding.unwrap_or(true)
     }
 
+    pub fn new_agent_command(&self) -> String {
+        self.terminal
+            .new_agent_command
+            .clone()
+            .unwrap_or_else(|| "claude".to_string())
+    }
+
     pub fn kitty_graphics_enabled(&self) -> bool {
         self.terminal
             .kitty_graphics

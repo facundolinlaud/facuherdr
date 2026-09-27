@@ -4,12 +4,14 @@
 //! Optional pane screen history is stored separately at `session-history.json`.
 //! Installed plugins are persisted separately at `plugins.json`.
 
+mod features;
 mod io;
 pub mod plugin_registry;
 mod restore;
 mod snapshot;
 mod writer;
 
+pub use self::features::restore_features;
 pub use self::io::{clear_history, load, load_history};
 pub use self::restore::restore;
 #[cfg(unix)]

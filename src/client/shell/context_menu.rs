@@ -46,6 +46,15 @@ impl ClientContextMenuOverlay {
                 item("Rename", Action::Rename),
                 item("Close", Action::Close),
             ],
+            ClientContextMenuTarget::Feature { collapsed, .. } => vec![
+                item("New agent", Action::NewFeatureAgent),
+                item("Rename", Action::Rename),
+                item(
+                    if *collapsed { "Expand" } else { "Collapse" },
+                    Action::ToggleGroup,
+                ),
+                item("Delete", Action::DeleteFeature),
+            ],
             ClientContextMenuTarget::Pane {
                 source_pane_id,
                 has_manual_label,
@@ -167,6 +176,23 @@ impl ClientShellState {
         }));
     }
 
+    pub(super) fn open_feature_context_menu(&mut self, feature_id: String, x: u16, y: u16) {
+        let collapsed = self.collapsed_feature_sections.contains(
+            &super::feature_panel::FeatureSection::Feature {
+                feature_id: feature_id.clone(),
+            },
+        );
+        self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
+            target: ClientContextMenuTarget::Feature {
+                feature_id,
+                collapsed,
+            },
+            x,
+            y,
+            highlighted: 0,
+        }));
+    }
+
     pub(super) fn move_context_menu_selection(&mut self, delta: isize) {
         let Some(ClientShellOverlay::ContextMenu(menu)) = self.overlay.as_mut() else {
             return;
@@ -213,8 +239,65 @@ impl ClientShellState {
                 action,
                 outcome,
             ),
+            ClientContextMenuTarget::Feature { feature_id, .. } => {
+                self.activate_feature_context_action(feature_id, action, outcome)
+            }
         }
         outcome.repaint = true;
+    }
+
+    fn activate_feature_context_action(
+        &mut self,
+        feature_id: String,
+        action: ClientContextMenuAction,
+        outcome: &mut ClientShellInput,
+    ) {
+        match action {
+            ClientContextMenuAction::Rename => {
+                let name = self.snapshot.as_deref().and_then(|snapshot| {
+                    snapshot
+                        .features
+                        .iter()
+                        .find(|feature| feature.feature_id == feature_id)
+                        .map(|feature| feature.name.clone())
+                });
+                if let Some(name) = name {
+                    self.overlay = Some(ClientShellOverlay::Rename(ClientRenameOverlay {
+                        title: "rename feature",
+                        input: TextEditor::new(&name, false),
+                        target: ClientRenameTarget::Feature { feature_id },
+                    }));
+                }
+            }
+            ClientContextMenuAction::ToggleGroup => self.toggle_feature_section(
+                super::feature_panel::FeatureSection::Feature { feature_id },
+                outcome,
+            ),
+            ClientContextMenuAction::NewFeatureAgent => {
+                let workspace_id = self
+                    .snapshot
+                    .as_deref()
+                    .and_then(|snapshot| snapshot.focused_workspace_id.clone());
+                if let Some(workspace_id) = workspace_id {
+                    self.push_endpoint_method(
+                        crate::api::schema::Method::FeatureStartAgent(
+                            crate::api::schema::FeatureStartAgentParams {
+                                workspace_id,
+                                feature: crate::api::schema::FeatureChoice::Existing { feature_id },
+                            },
+                        ),
+                        outcome,
+                    );
+                }
+            }
+            ClientContextMenuAction::DeleteFeature => self.push_endpoint_method(
+                crate::api::schema::Method::FeatureDelete(crate::api::schema::FeatureTarget {
+                    feature_id,
+                }),
+                outcome,
+            ),
+            _ => {}
+        }
     }
 
     fn activate_workspace_context_action(

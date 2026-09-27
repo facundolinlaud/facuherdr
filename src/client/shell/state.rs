@@ -94,6 +94,8 @@ pub(super) struct ShellHitMap {
     pub(super) popup: Option<PaneHit>,
     pub(super) pane_splits: Vec<PaneSplitHit>,
     pub(super) agents: Vec<(Rect, String)>,
+    pub(super) feature_panel_rows: Vec<(Rect, super::feature_panel::FeaturePanelItem)>,
+    pub(super) feature_section_toggles: Vec<(Rect, super::feature_panel::FeatureSection)>,
     pub(super) endpoint_agents: Vec<(Rect, ClientEndpointId, String)>,
     pub(super) agent_body: Rect,
     pub(super) agent_scrollbar: Rect,
@@ -125,6 +127,7 @@ pub(super) struct ShellHitMap {
     pub(super) navigator_scroll_metrics: Option<crate::pane::ScrollMetrics>,
     pub(super) worktree_search: Rect,
     pub(super) worktree_rows: Vec<(Rect, usize)>,
+    pub(super) feature_picker_rows: Vec<(Rect, usize)>,
     pub(super) help_popup: Rect,
     pub(super) help_scrollbar: Rect,
     pub(super) help_scroll_metrics: Option<crate::pane::ScrollMetrics>,
@@ -179,6 +182,12 @@ pub(super) struct ClientWorkspacePress {
     pub(super) start_row: u16,
 }
 
+pub(super) struct ClientFeaturePanelPress {
+    pub(super) item: super::feature_panel::FeaturePanelItem,
+    pub(super) start_column: u16,
+    pub(super) start_row: u16,
+}
+
 pub(super) struct ClientTabPress {
     pub(super) tab_id: String,
     pub(super) workspace_id: String,
@@ -215,6 +224,10 @@ pub(super) enum ClientChromeDrag {
     Workspace {
         source_workspace_id: String,
         target: Option<(Option<String>, u16)>,
+    },
+    FeaturePanel {
+        item: super::feature_panel::FeaturePanelItem,
+        drop: Option<Box<super::feature_panel::FeaturePanelDrop>>,
     },
     PaneSplit {
         hit: PaneSplitHit,
@@ -291,6 +304,7 @@ pub(super) enum ClientShellOverlayKind {
     ContextMenu,
     GlobalMenu,
     Settings,
+    FeaturePicker,
 }
 
 #[derive(Debug)]
@@ -314,6 +328,9 @@ pub(super) enum ClientRenameTarget {
     },
     Pane {
         pane_id: String,
+    },
+    Feature {
+        feature_id: String,
     },
 }
 
@@ -525,6 +542,8 @@ pub(super) enum ClientContextMenuAction {
     Zoom,
     ToggleRightClickPassthrough,
     ClosePane,
+    NewFeatureAgent,
+    DeleteFeature,
 }
 
 #[derive(Debug)]
@@ -546,6 +565,10 @@ pub(super) enum ClientContextMenuTarget {
         source_pane_id: Option<String>,
         has_manual_label: bool,
         right_click_passthrough: bool,
+    },
+    Feature {
+        feature_id: String,
+        collapsed: bool,
     },
 }
 
@@ -591,6 +614,7 @@ pub(super) enum ClientShellOverlay {
     ContextMenu(ClientContextMenuOverlay),
     GlobalMenu(ClientGlobalMenuOverlay),
     Settings(ClientSettingsOverlay),
+    FeaturePicker(ClientFeaturePickerOverlay),
 }
 
 impl ClientShellOverlay {
@@ -609,6 +633,7 @@ impl ClientShellOverlay {
             Self::ContextMenu(_) => ClientShellOverlayKind::ContextMenu,
             Self::GlobalMenu(_) => ClientShellOverlayKind::GlobalMenu,
             Self::Settings(_) => ClientShellOverlayKind::Settings,
+            Self::FeaturePicker(_) => ClientShellOverlayKind::FeaturePicker,
         }
     }
 }
@@ -866,9 +891,11 @@ pub(crate) struct ClientShellState {
     pub(super) last_sidebar_divider_click: Option<std::time::Instant>,
     pub(super) chrome_drag: Option<ClientChromeDrag>,
     pub(super) workspace_press: Option<ClientWorkspacePress>,
+    pub(super) feature_panel_press: Option<ClientFeaturePanelPress>,
     pub(super) tab_press: Option<ClientTabPress>,
     pub(super) collapsed_groups: HashSet<String>,
     pub(super) remote_collapsed_groups: HashMap<ClientEndpointId, HashSet<String>>,
+    pub(super) collapsed_feature_sections: HashSet<super::feature_panel::FeatureSection>,
     pub(super) workspace_scroll: usize,
     pub(super) agent_scroll: usize,
     pub(super) pending_agent_reveal: Option<(ClientEndpointId, String)>,
@@ -1031,9 +1058,14 @@ impl ClientShellState {
             last_sidebar_divider_click: None,
             chrome_drag: None,
             workspace_press: None,
+            feature_panel_press: None,
             tab_press: None,
             collapsed_groups: preferences.collapsed_groups.into_iter().collect(),
             remote_collapsed_groups,
+            collapsed_feature_sections: preferences
+                .collapsed_feature_sections
+                .into_iter()
+                .collect(),
             workspace_scroll: 0,
             agent_scroll: 0,
             pending_agent_reveal: None,

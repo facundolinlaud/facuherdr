@@ -508,6 +508,22 @@ impl ClientShellState {
         Some(last_index + 1)
     }
 
+    fn feature_panel_drop_at(
+        &self,
+        item: &super::feature_panel::FeaturePanelItem,
+        point: (u16, u16),
+    ) -> Option<super::feature_panel::FeaturePanelDrop> {
+        if !super::contains(self.hits.agent_body, point) {
+            return None;
+        }
+        super::feature_panel::feature_panel_drop(
+            item,
+            &self.hits.feature_panel_rows,
+            point.1,
+            &self.snapshot.as_deref()?.features,
+        )
+    }
+
     fn workspace_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {
         if self.hits.workspace_body.height == 0
             || point.1 < self.hits.workspace_body.y.saturating_sub(1)
@@ -1174,6 +1190,16 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
+                Some(ClientChromeDrag::FeaturePanel { item, .. }) => {
+                    let drop = self.feature_panel_drop_at(item, point).map(Box::new);
+                    if let Some(ClientChromeDrag::FeaturePanel { drop: current, .. }) =
+                        self.chrome_drag.as_mut()
+                    {
+                        *current = drop;
+                    }
+                    outcome.repaint = true;
+                    return;
+                }
                 Some(ClientChromeDrag::Workspace { .. }) => {
                     let target = self.workspace_drop_target_at(point);
                     if let Some(ClientChromeDrag::Workspace {
@@ -1186,6 +1212,19 @@ impl ClientShellState {
                     return;
                 }
                 None => {}
+            }
+            if let Some(press) = self.feature_panel_press.as_ref() {
+                let delta = mouse
+                    .column
+                    .abs_diff(press.start_column)
+                    .max(mouse.row.abs_diff(press.start_row));
+                if delta >= 1 && press.item != super::feature_panel::FeaturePanelItem::Ungrouped {
+                    let item = press.item.clone();
+                    let drop = self.feature_panel_drop_at(&item, point).map(Box::new);
+                    self.chrome_drag = Some(ClientChromeDrag::FeaturePanel { item, drop });
+                    outcome.repaint = true;
+                }
+                return;
             }
             if let Some(press) = self.workspace_press.as_ref() {
                 let delta = mouse
@@ -1229,7 +1268,14 @@ impl ClientShellState {
             if let Some(drag) = self.chrome_drag.take() {
                 self.workspace_press = None;
                 self.tab_press = None;
+                self.feature_panel_press = None;
                 match drag {
+                    ClientChromeDrag::FeaturePanel { drop, .. } => {
+                        if let Some(drop) = drop {
+                            self.push_endpoint_method(drop.method, outcome);
+                        }
+                        outcome.repaint = true;
+                    }
                     ClientChromeDrag::Tab {
                         tab_id,
                         workspace_id,
@@ -1336,6 +1382,17 @@ impl ClientShellState {
                     | ClientChromeDrag::NavigatorScrollbar { .. }
                     | ClientChromeDrag::ProductAnnouncementScrollbar { .. }
                     | ClientChromeDrag::ReleaseNotesScrollbar { .. } => {}
+                }
+                return;
+            }
+            if let Some(press) = self.feature_panel_press.take() {
+                if let super::feature_panel::FeaturePanelItem::Agent { pane_id, .. } = press.item {
+                    self.push_endpoint_method(
+                        crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget {
+                            pane_id,
+                        }),
+                        outcome,
+                    );
                 }
                 return;
             }
@@ -1486,6 +1543,25 @@ impl ClientShellState {
                     }
                 }
                 _ => {}
+            }
+            return;
+        }
+        if let Some(ClientShellOverlay::FeaturePicker(picker)) = self.overlay.as_ref() {
+            if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+                let clicked_row = self
+                    .hits
+                    .feature_picker_rows
+                    .iter()
+                    .find(|(rect, _)| super::contains(*rect, point))
+                    .map(|(_, index)| *index);
+                if let Some(index) = clicked_row {
+                    self.submit_feature_picker(index, outcome);
+                } else if super::contains(self.hits.overlay_primary, point) {
+                    self.submit_feature_picker(picker.selected, outcome);
+                } else if super::contains(self.hits.overlay_cancel, point) {
+                    self.overlay = None;
+                    outcome.repaint = true;
+                }
             }
             return;
         }
@@ -1813,6 +1889,23 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
+                let feature_id = self
+                    .hits
+                    .feature_panel_rows
+                    .iter()
+                    .find_map(|(rect, item)| match item {
+                        super::feature_panel::FeaturePanelItem::Feature { feature_id }
+                            if super::contains(*rect, point) =>
+                        {
+                            Some(feature_id.clone())
+                        }
+                        _ => None,
+                    });
+                if let Some(feature_id) = feature_id {
+                    self.open_feature_context_menu(feature_id, mouse.column, mouse.row);
+                    outcome.repaint = true;
+                    return;
+                }
                 let tab_id = self
                     .hits
                     .tabs
@@ -1989,7 +2082,13 @@ impl ClientShellState {
                         crate::config::AgentPanelSortConfig::Spaces => {
                             crate::config::AgentPanelSortConfig::Priority
                         }
-                        crate::config::AgentPanelSortConfig::Priority => {
+                        crate::config::AgentPanelSortConfig::Priority
+                            if self.supports_feature_groups() =>
+                        {
+                            crate::config::AgentPanelSortConfig::Features
+                        }
+                        crate::config::AgentPanelSortConfig::Priority
+                        | crate::config::AgentPanelSortConfig::Features => {
                             crate::config::AgentPanelSortConfig::Spaces
                         }
                     };
@@ -2110,6 +2209,30 @@ impl ClientShellState {
                     .flatten();
                 if let Some(tab_press) = tab_press {
                     self.tab_press = Some(tab_press);
+                    return;
+                }
+                let section_toggle = self
+                    .hits
+                    .feature_section_toggles
+                    .iter()
+                    .find(|(rect, _)| super::contains(*rect, point))
+                    .map(|(_, section)| section.clone());
+                if let Some(section) = section_toggle {
+                    self.toggle_feature_section(section, outcome);
+                    return;
+                }
+                let feature_panel_press = self
+                    .hits
+                    .feature_panel_rows
+                    .iter()
+                    .find(|(rect, _)| super::contains(*rect, point))
+                    .map(|(_, item)| ClientFeaturePanelPress {
+                        item: item.clone(),
+                        start_column: mouse.column,
+                        start_row: mouse.row,
+                    });
+                if let Some(feature_panel_press) = feature_panel_press {
+                    self.feature_panel_press = Some(feature_panel_press);
                     return;
                 }
                 if self.handle_endpoint_agent_click(point, outcome) {

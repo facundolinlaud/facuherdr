@@ -445,7 +445,7 @@ impl ClientShellState {
     }
 
     pub(super) fn insert_overlay_text(&mut self, text: &str) -> bool {
-        if self.insert_worktree_overlay_text(text) {
+        if self.insert_worktree_overlay_text(text) || self.paste_into_feature_picker(text) {
             return true;
         }
         match self.overlay.as_mut() {
@@ -626,6 +626,9 @@ impl ClientShellState {
         }
 
         if self.route_worktree_overlay_key(key, outcome) {
+            return;
+        }
+        if self.route_feature_picker_key(key, outcome) {
             return;
         }
         if matches!(self.overlay, Some(ClientShellOverlay::Navigator(_))) {
@@ -980,6 +983,12 @@ impl ClientShellState {
                     label: Some(trimmed.to_owned()),
                 },
             )),
+            ClientRenameTarget::Feature { feature_id } => (!trimmed.is_empty()).then(|| {
+                crate::api::schema::Method::FeatureRename(crate::api::schema::FeatureRenameParams {
+                    feature_id,
+                    name: trimmed.to_owned(),
+                })
+            }),
         };
         if let Some(method) = method {
             self.push_endpoint_method(method, outcome);

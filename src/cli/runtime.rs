@@ -1,9 +1,10 @@
 use crate::api::schema::{
-    EmptyParams, Method, PaneFocusDirectionParams, PaneInputSetParams, PaneMoveParams,
-    PaneRenameParams, PaneResizeParams, PaneSplitParams, PaneSwapParams, PaneTarget,
-    PaneZoomParams, Request, TabCreateParams, TabListParams, TabRenameParams, TabTarget,
-    WorkspaceCloseParams, WorkspaceCreateParams, WorkspaceRenameParams, WorkspaceTarget,
-    WorktreeCreateParams, WorktreeListParams, WorktreeOpenParams, WorktreeRemoveParams,
+    EmptyParams, FeatureInheritParams, Method, PaneFocusDirectionParams, PaneInputSetParams,
+    PaneMoveParams, PaneRenameParams, PaneResizeParams, PaneSplitParams, PaneSwapParams,
+    PaneTarget, PaneZoomParams, Request, ResponseResult, SuccessResponse, TabCreateParams,
+    TabListParams, TabRenameParams, TabTarget, WorkspaceCloseParams, WorkspaceCreateParams,
+    WorkspaceRenameParams, WorkspaceTarget, WorktreeCreateParams, WorktreeListParams,
+    WorktreeOpenParams, WorktreeRemoveParams,
 };
 
 fn print_method_response(id: &'static str, method: Method) -> std::io::Result<i32> {
@@ -11,6 +12,46 @@ fn print_method_response(id: &'static str, method: Method) -> std::io::Result<i3
         id: id.into(),
         method,
     })?)
+}
+
+/// Like `print_method_response` for commands that create a pane. When run from
+/// inside a Herdr pane, the new pane joins the caller's feature group so agents
+/// spawned by a grouped agent stay grouped.
+fn print_created_pane_response(id: &'static str, method: Method) -> std::io::Result<i32> {
+    let response = super::send_request(&Request {
+        id: id.into(),
+        method,
+    })?;
+    if let (Some(pane_id), Some(from_pane_id)) =
+        (created_pane_id(&response), super::target::caller_pane_id())
+    {
+        // Best effort: an older server or an ungrouped caller leaves the pane ungrouped.
+        let _ = super::send_request_unchecked(&Request {
+            id: "cli:feature:inherit".into(),
+            method: Method::FeatureInherit(FeatureInheritParams {
+                pane_id,
+                from_pane_id,
+            }),
+        });
+    }
+    super::print_response(&response)
+}
+
+/// The pane a create command made. Reopening an already open worktree made none.
+fn created_pane_id(response: &serde_json::Value) -> Option<String> {
+    let response = serde_json::from_value::<SuccessResponse>(response.clone()).ok()?;
+    match response.result {
+        ResponseResult::WorkspaceCreated { root_pane, .. }
+        | ResponseResult::WorktreeCreated { root_pane, .. }
+        | ResponseResult::WorktreeOpened {
+            root_pane,
+            already_open: false,
+            ..
+        }
+        | ResponseResult::TabCreated { root_pane, .. } => Some(root_pane.pane_id),
+        ResponseResult::PaneInfo { pane } => Some(pane.pane_id),
+        _ => None,
+    }
 }
 
 pub(super) fn workspace_list() -> std::io::Result<i32> {
@@ -21,7 +62,7 @@ pub(super) fn workspace_list() -> std::io::Result<i32> {
 }
 
 pub(super) fn workspace_create(params: WorkspaceCreateParams) -> std::io::Result<i32> {
-    print_method_response("cli:workspace:create", Method::WorkspaceCreate(params))
+    print_created_pane_response("cli:workspace:create", Method::WorkspaceCreate(params))
 }
 
 pub(super) fn workspace_get(workspace_id: String) -> std::io::Result<i32> {
@@ -51,7 +92,7 @@ pub(super) fn tab_list(params: TabListParams) -> std::io::Result<i32> {
 }
 
 pub(super) fn tab_create(params: TabCreateParams) -> std::io::Result<i32> {
-    print_method_response("cli:tab:create", Method::TabCreate(params))
+    print_created_pane_response("cli:tab:create", Method::TabCreate(params))
 }
 
 pub(super) fn tab_get(tab_id: String) -> std::io::Result<i32> {
@@ -75,11 +116,11 @@ pub(super) fn worktree_list(params: WorktreeListParams) -> std::io::Result<i32> 
 }
 
 pub(super) fn worktree_create(params: WorktreeCreateParams) -> std::io::Result<i32> {
-    print_method_response("cli:worktree:create", Method::WorktreeCreate(params))
+    print_created_pane_response("cli:worktree:create", Method::WorktreeCreate(params))
 }
 
 pub(super) fn worktree_open(params: WorktreeOpenParams) -> std::io::Result<i32> {
-    print_method_response("cli:worktree:open", Method::WorktreeOpen(params))
+    print_created_pane_response("cli:worktree:open", Method::WorktreeOpen(params))
 }
 
 pub(super) fn worktree_remove(params: WorktreeRemoveParams) -> std::io::Result<i32> {
@@ -107,7 +148,7 @@ pub(super) fn pane_input_set(params: PaneInputSetParams) -> std::io::Result<i32>
 }
 
 pub(super) fn pane_split(params: PaneSplitParams) -> std::io::Result<i32> {
-    print_method_response("cli:pane:split", Method::PaneSplit(params))
+    print_created_pane_response("cli:pane:split", Method::PaneSplit(params))
 }
 
 pub(super) fn pane_swap(params: PaneSwapParams) -> std::io::Result<i32> {
