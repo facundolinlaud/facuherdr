@@ -23,7 +23,9 @@ pub fn app_dir_name() -> &'static str {
     if cfg!(debug_assertions) {
         "herdr-dev"
     } else {
-        "herdr"
+        // A custom build can keep its config, sessions and sockets apart from an
+        // installed Herdr by building with e.g. HERDR_APP_DIR_NAME=facuherdr.
+        option_env!("HERDR_APP_DIR_NAME").unwrap_or("herdr")
     }
 }
 
