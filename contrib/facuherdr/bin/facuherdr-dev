@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Runs the facuherdr working copy in a sandbox: a debug build that keeps its
+# config, sessions and sockets in ~/.config/herdr-dev, apart from your real
+# facuherdr sessions. Rebuilds first, so it always runs the latest code.
+#   facuherdr-dev                 open the sandbox
+#   facuherdr-dev server stop     stop the sandbox server
+# Set FACUHERDR_REPO when the checkout is not at ~/workspace/herdr.
+set -euo pipefail
+repo="${FACUHERDR_REPO:-$HOME/workspace/herdr}"
+cargo build --quiet --manifest-path "$repo/Cargo.toml"
+# Drop the variables a facuherdr pane sets, so the sandbox never talks to it.
+exec env -u HERDR_ENV -u HERDR_SOCKET_PATH -u HERDR_CLIENT_SOCKET_PATH -u HERDR_PANE_ID \
+  -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID -u HERDR_BIN_PATH -u HERDR_SESSION \
+  "$repo/target/debug/herdr" "$@"

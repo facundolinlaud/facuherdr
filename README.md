@@ -1,3 +1,219 @@
+# facuherdr
+
+A personal fork of [Herdr](https://github.com/herdrdev/herdr) (Apache 2.0) built for running
+many coding agents at once in a single monorepo. Upstream Herdr groups agents by git
+repository, which collapses into one group when everything lives in one repo. This fork adds
+**feature groups**: named groups you create and fill yourself, shown in the agents panel.
+
+It installs as `facuherdr` and keeps its own config, sessions and sockets, so it runs side by
+side with an official `herdr` install. The original Herdr README follows
+[below](#herdr).
+
+## What the fork adds
+
+**Feature groups in the agents panel**
+
+- Click the label on the right of the agents panel header to cycle `grouped` → `priority` →
+  `features`. The features view lists each feature as a header (theme `surface0` background,
+  emoji names welcome) with its agents indented underneath, then an `ungrouped` block.
+- Each agent row shows its **space name** (renaming the space renames the row) and, on a second
+  line, its account label: `facundo (56%) | opus 5.5` (see [account labels](#account-labels)).
+  When two agents share a space, the row adds the agent's name.
+- **Drag and drop**: reorder agents inside a feature, drag them into another feature or into
+  `ungrouped`, or drag a feature header to move the whole feature.
+- **Collapse** a feature with the ▾/▸ toggle; a collapsed header shows the agent count and the
+  most urgent status of its agents.
+- **Right-click menus**
+  - feature header: New agent, Rename, Collapse/Expand, Delete (delete only ungroups agents);
+  - agent row: the menu of its space (Rename renames the row);
+  - `ungrouped` header or empty panel space: New feature….
+- Feature groups are saved with the session and survive detaching, server restarts and live
+  handoff.
+
+**Starting agents**
+
+- `prefix+a` (`keys.new_agent`) opens a picker: choose a feature, type a new name to create
+  one, or pick **"no feature: say where it goes in the task"**. Then type the agent's task.
+- Every new agent gets **its own space**, started with `terminal.new_agent_command`.
+- Without a feature, the task is sent with the feature commands as context (not as an
+  instruction), so your message decides whether the agent joins an existing feature or creates
+  one.
+- Panes created by `herdr` commands run from inside a grouped pane (`workspace create`,
+  `tab create`, `pane split`, `worktree create/open`) join the caller's feature, so an
+  orchestrator agent's children stay grouped with it.
+
+**Feature commands** (for you, scripts and agents)
+
+```sh
+facuherdr feature list                                  # feature groups and their panes
+facuherdr feature create "🎬 clips"                      # an empty feature
+facuherdr feature join "🎬 clips" [--create] [--pane <id>]  # this pane by default
+```
+
+Inside a pane, prefer `"${HERDR_BIN_PATH:-herdr}"` over `herdr`: Herdr sets `HERDR_BIN_PATH` to
+the binary that runs the pane, so commands reach `facuherdr` even when `herdr` on `PATH` is the
+official one.
+
+## Build and install
+
+Requires the usual Herdr toolchain (Rust and Zig 0.16.0; see [CONTRIBUTING.md](CONTRIBUTING.md)).
+
+```sh
+# Release build that keeps its data in ~/.config/facuherdr instead of ~/.config/herdr.
+HERDR_APP_DIR_NAME=facuherdr cargo build --release --locked
+
+# Keep every build as its own file and point facuherdr at the current one, so a running
+# server never has its binary overwritten and rollback is one symlink.
+release=~/.local/share/facuherdr/releases/facuherdr-$(git rev-parse --short HEAD)-$(date +%Y%m%d-%H%M%S)
+mkdir -p "$(dirname "$release")" && cp target/release/herdr "$release"
+ln -sfn "$release" ~/.local/bin/facuherdr
+
+facuherdr --session main   # or plain `facuherdr` for the default session
+```
+
+To move a running session onto a new build without stopping its agents:
+
+```sh
+facuherdr --session main server live-handoff --import-exe "$release"
+```
+
+Then detach (`prefix+q`) and reattach to load the new sidebar. Stopping instead
+(`facuherdr --session main server stop`) saves the session; agents resume their conversations
+when it reopens.
+
+- `HERDR_APP_DIR_NAME` is read at compile time and only affects release builds. Debug builds
+  always use `herdr-dev`.
+- Never run `facuherdr update`: it installs official Herdr over the fork. The config below
+  turns the update prompt off.
+- Back up before big changes: `tar -czf facuherdr-backup.tgz -C ~/.config facuherdr`.
+
+### Sandbox
+
+`contrib/facuherdr/bin/facuherdr-dev` rebuilds the working copy (debug) and runs it with its own
+data in `~/.config/herdr-dev`, apart from your real sessions. It clears the variables a
+`facuherdr` pane sets, so it works from inside one.
+
+```sh
+facuherdr-dev               # try the latest code
+facuherdr-dev server stop   # stop the sandbox
+```
+
+Set `FACUHERDR_REPO` if the checkout is not at `~/workspace/herdr`.
+
+## Configuration
+
+`~/.config/facuherdr/config.toml` (your usual Herdr config plus):
+
+```toml
+[ui]
+agent_panel_sort = "features"   # open the agents panel in the features view
+
+[keys]
+new_agent = "prefix+a"          # the default
+
+[terminal]
+# Typed into each new agent's shell; the task, when given, is appended as one quoted argument.
+# With clauth, pin each agent to the account active when it starts:
+new_agent_command = 'clauth start "$(clauth which)"'
+
+[update]
+version_check = false           # never suggest installing official Herdr over the fork
+```
+
+## Account labels
+
+The second line of an agent row is reported by the agent itself as pane metadata, keyed by agent
+kind (`claude_account`, `codex_account`) so a label left by an earlier agent in the same pane is
+never shown on the current one. Labels are not persisted; they come back as agents report again.
+All scripts live in [`contrib/facuherdr`](contrib/facuherdr); copy `bin/*` to `~/.local/bin`.
+
+### Claude Code: `herdr-claude-statusline`
+
+A wrapper in front of your status line. On each redraw it reports
+`<account, 7 chars> (<weekly % used>) | <model>` and passes the input on unchanged to the real
+status line command given as its arguments.
+
+- Account and usage come from [clauth](#clauth) when it knows the session's profile
+  (`clauth which`, `clauth status --json`); otherwise from the account email in
+  `$CLAUDE_CONFIG_DIR/.claude.json` and the `rate_limits` in the status line input, which Claude
+  Code sends only after the first reply.
+- The model comes from the model id (`claude-opus-5-5` → `opus 5.5`).
+- Reports in the background, when the label changes or at least once a minute.
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "~/.local/bin/herdr-claude-statusline <your existing status line command>"
+}
+```
+
+Without an existing status line, use the script alone; it then draws nothing.
+
+### Codex: `herdr-codex-account` and `codex-no-daemon.zsh`
+
+Codex has no custom status line, so a hook reports the label (`facundo (12%) | gpt-6-astra`)
+when a session starts and after every turn. It reads the login email from `~/.codex/auth.json`,
+the weekly window (`window_minutes == 10080`) from the newest session log with rate limits, and
+the model from the session log (falling back to `model` in `~/.codex/config.toml`).
+
+Register it in `~/.codex/hooks.json`, next to any existing hooks:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "bash ~/.local/bin/herdr-codex-account", "timeout": 10 }] }],
+    "Stop":         [{ "hooks": [{ "type": "command", "command": "bash ~/.local/bin/herdr-codex-account", "timeout": 10 }] }]
+  }
+}
+```
+
+- Codex asks once to trust a new hook.
+- The hook reports before exiting, because Codex stops a hook's leftover processes.
+- Codex runs its start hook when the first message is sent, so a label appears after the first
+  reply.
+- **Interactive Codex runs hooks in a shared background daemon** that has no idea which Herdr
+  pane it serves. [`codex-no-daemon.zsh`](contrib/facuherdr/codex-no-daemon.zsh) wraps `codex`
+  so that, only inside Herdr panes, interactive sessions (`codex`, `codex resume`, `codex fork`)
+  run with `--no-daemon`. Source it from `~/.zshrc`. Those sessions are then not visible to the
+  shared daemon's features (`codex agents`, remote control).
+
+### clauth
+
+[clauth](https://crates.io/crates/clauth) (`cargo install clauth`) manages several Claude
+accounts. Plain `claude` sessions share one login, which clauth swaps when you change the active
+account, so every plain session moves with it. `clauth start <profile>` gives a session its own
+login instead. Use it for new agents (`terminal.new_agent_command` above) and, through
+`herdr-start-claude`, for agents started by other agents:
+
+```sh
+herdr-start-claude <pane-id> <agent-name> [--account <profile>] [--feature <name>] [--timeout <s>] [-- <claude args>...]
+```
+
+Starts `clauth start <account>` in a pane (default account: the caller's own), waits until Herdr
+detects Claude, names the agent so `herdr agent prompt <name>` works, optionally files it under a
+feature (created if missing), and prints JSON. Codex agents keep using
+`herdr agent start <name> --kind codex --pane <id>`.
+
+## Keeping up with upstream
+
+```sh
+git fetch origin                       # origin = herdrdev/herdr
+git rebase origin/master               # on this fork's branch
+cargo test --bin herdr                 # or `just test` with cargo-nextest
+facuherdr-dev                          # try it in the sandbox
+# then build, install and live-hand off as above
+```
+
+## Known limitations
+
+- Codex agents show a grey status dot: Herdr's screen detection does not yet match Codex 0.157.
+- Claude agents that Herdr resumes after a restart run plain `claude`, so they use the shared
+  login rather than a pinned clauth account; the label shows which account they landed on.
+- Closing every space in a session also discards its saved feature groups.
+- If official Herdr ever runs a fork session, it drops the feature groups on its next save.
+
+---
+
 # herdr
 
 

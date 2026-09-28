@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Claude Code status line wrapper for Herdr.
+#
+# Reports this pane's Claude account to Herdr as the `claude_account` metadata token,
+# e.g. "facundo (56%) | opus 5.5": the account (first 7 characters), the share of its weekly
+# limit used, and the running model. Uses clauth when it knows the session's
+# profile, else the account's email.
+# Then hands the status line input unchanged to the command given as arguments
+# (the real status line), or prints nothing when there is none.
+#
+# Usage in a Claude settings.json:
+#   "statusLine": { "type": "command", "command": "~/.local/bin/herdr-claude-statusline <real command...>" }
+
+input=$(cat)
+
+# The clauth profile this session runs under. clauth names profiles after the
+# account username. `clauth which` follows CLAUDE_CONFIG_DIR, so a session
+# started with `clauth start <profile>` reports its own profile.
+clauth_profile() {
+  command -v clauth >/dev/null 2>&1 || return 0
+  local profile
+  profile=$(clauth which 2>/dev/null)
+  [ "$profile" = "unknown" ] || printf '%s' "$profile"
+}
+
+# Weekly usage of a clauth profile, as a whole percentage.
+clauth_weekly_used() {
+  clauth status --json 2>/dev/null | jq -r --arg name "$1" '
+    .profiles[] | select(.name == $name) | .windows[] | select(.label == "7d")
+    | .utilization_pct | round' 2>/dev/null
+}
+
+# Without clauth: the username of the account in this session's config.
+email_user() {
+  local account_file email
+  if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+    account_file="$CLAUDE_CONFIG_DIR/.claude.json"
+  else
+    account_file="$HOME/.claude.json"
+  fi
+  email=$(jq -r '.oauthAccount.emailAddress // empty' "$account_file" 2>/dev/null)
+  printf '%s' "${email%%@*}"
+}
+
+# Without clauth: weekly usage from the status line input. Claude Code sends
+# it only after the first reply of a session.
+statusline_weekly_used() {
+  jq -r '.rate_limits.seven_day.used_percentage // empty | round' <<<"$input" 2>/dev/null
+}
+
+# The running model in lower case, e.g. "opus 5.5". Built from the model id
+# (claude-opus-5-5, claude-haiku-4-5-20251001, claude-opus-5-5[1m]), which
+# always carries the version; falls back to the display name.
+model_name() {
+  jq -r '
+    (.model.id // "") as $id
+    | if ($id | startswith("claude-")) then
+        $id | ltrimstr("claude-") | sub("\\[.*\\]$"; "") | split("-")
+        | map(select(test("^[0-9]{8}$") | not))
+        | if length > 1 then "\(.[0]) \(.[1:] | join("."))" else .[0] end
+      else
+        .model.display_name // empty | sub(" *\\(.*\\)$"; "") | ascii_downcase
+      end' <<<"$input" 2>/dev/null
+}
+
+report_account() {
+  [ -n "${HERDR_PANE_ID:-}" ] || return 0
+  # The Herdr build that runs this pane, e.g. facuherdr.
+  local herdr_bin="${HERDR_BIN_PATH:-herdr}"
+  command -v "$herdr_bin" >/dev/null 2>&1 || return 0
+
+  local user used model label cache
+  user=$(clauth_profile)
+  if [ -n "$user" ]; then
+    used=$(clauth_weekly_used "$user")
+  else
+    user=$(email_user)
+    used=$(statusline_weekly_used)
+  fi
+  [ -n "$user" ] || return 0
+  model=$(model_name)
+  # Show only the first 7 characters of the account, e.g. "facundo".
+  label="${user:0:7}"
+  if [ -n "$used" ]; then
+    label="$label ($used%)"
+  fi
+  if [ -n "$model" ]; then
+    label="$label | $model"
+  fi
+
+  # Report when the label changes, and at least once a minute so a restarted
+  # Herdr server, which forgets reported labels, gets it back.
+  cache="${TMPDIR:-/tmp}/herdr-claude-account-${HERDR_PANE_ID//[^A-Za-z0-9]/_}"
+  if [ "$(cat "$cache" 2>/dev/null)" = "$label" ] && [ -n "$(find "$cache" -mmin -1 2>/dev/null)" ]; then
+    return 0
+  fi
+  "$herdr_bin" pane report-metadata "$HERDR_PANE_ID" --source claude-account --token "claude_account=$label" >/dev/null 2>&1 &&
+    printf '%s' "$label" >"$cache"
+}
+
+# In the background, so a slow or restarting Herdr never delays the status line.
+report_account >/dev/null 2>&1 &
+
+if [ "$#" -gt 0 ]; then
+  printf '%s' "$input" | "$@"
+fi

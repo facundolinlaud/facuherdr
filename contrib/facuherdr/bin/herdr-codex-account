@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Codex hook for Herdr (SessionStart and Stop).
+#
+# Reports this pane's Codex account to Herdr as the `codex_account` metadata token,
+# e.g. "facundo (12%) | gpt-6-astra": the first 7 characters of the account's
+# username, the share of the weekly limit used, and the model. Codex has no
+# custom status line, so this runs as a hook and reads Codex's own files:
+# the login in ~/.codex/auth.json and the session logs in ~/.codex/sessions.
+# It prints nothing, so Codex ignores its output.
+
+input=$(cat)
+codex_home="${CODEX_HOME:-$HOME/.codex}"
+
+# The login's email username, from the id token in auth.json.
+codex_user() {
+  python3 - "$codex_home/auth.json" <<'PY' 2>/dev/null
+import base64, json, sys
+token = json.load(open(sys.argv[1]))["tokens"]["id_token"]
+payload = token.split(".")[1]
+payload += "=" * (-len(payload) % 4)
+email = json.loads(base64.urlsafe_b64decode(payload)).get("email", "")
+print(email.split("@")[0])
+PY
+}
+
+# Weekly usage from the newest session log that recorded rate limits. Usage
+# is per account, so any recent session of this login reflects it.
+weekly_used() {
+  local log limits
+  for log in "$1" $(find "$codex_home/sessions" -name '*.jsonl' -mtime -7 -print0 2>/dev/null | xargs -0 ls -t 2>/dev/null | head -20); do
+    [ -f "$log" ] || continue
+    limits=$(grep '"rate_limits"' "$log" 2>/dev/null | tail -1)
+    [ -n "$limits" ] || continue
+    jq -r '[.. | objects | select(has("rate_limits")) | .rate_limits][0]
+      | [.primary, .secondary] | map(select(. != null and .window_minutes == 10080))
+      | .[0].used_percent // empty | round' <<<"$limits" 2>/dev/null
+    return 0
+  done
+}
+
+# The model of this session's latest turn, else the configured default.
+model_name() {
+  local model=""
+  if [ -f "$1" ]; then
+    model=$(grep '"turn_context"' "$1" 2>/dev/null | tail -1 | jq -r '.. | objects | .model? // empty' 2>/dev/null | head -1)
+  fi
+  if [ -z "$model" ]; then
+    model=$(sed -n 's/^model *= *"\(.*\)"/\1/p' "$codex_home/config.toml" 2>/dev/null | head -1)
+  fi
+  printf '%s' "$model" | tr '[:upper:]' '[:lower:]'
+}
+
+report_account() {
+  [ -n "${HERDR_PANE_ID:-}" ] || return 0
+  local herdr_bin="${HERDR_BIN_PATH:-herdr}"
+  command -v "$herdr_bin" >/dev/null 2>&1 || return 0
+
+  local transcript user used model label
+  transcript=$(jq -r '.transcript_path // empty' <<<"$input" 2>/dev/null)
+  user=$(codex_user)
+  [ -n "$user" ] || return 0
+  used=$(weekly_used "$transcript")
+  model=$(model_name "$transcript")
+
+  label="${user:0:7}"
+  if [ -n "$used" ]; then
+    label="$label ($used%)"
+  fi
+  if [ -n "$model" ]; then
+    label="$label | $model"
+  fi
+  "$herdr_bin" pane report-metadata "$HERDR_PANE_ID" --source codex-account --token "codex_account=$label"
+}
+
+# Runs before the hook exits: Codex stops a hook's leftover processes, so a
+# background report would be cut short. Codex bounds the hook with its timeout.
+report_account >/dev/null 2>&1
+exit 0
