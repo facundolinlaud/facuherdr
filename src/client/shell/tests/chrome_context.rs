@@ -568,13 +568,24 @@ fn feature_header_menu_starts_an_agent_in_that_feature() {
     assert_eq!(labels, ["New agent", "Rename", "Collapse", "Delete"]);
     state.compose(106, 30).expect("feature context menu");
     let new_agent = state.hits.context_menu_rows[0].0;
-    let outcome =
-        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: new_agent.x + 1,
-            row: new_agent.y,
-            modifiers: KeyModifiers::empty(),
-        })]);
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: new_agent.x + 1,
+        row: new_agent.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::Rename(ClientRenameOverlay {
+            target: ClientRenameTarget::NewAgentTask { .. },
+            ..
+        }))
+    ));
+
+    state.handle_raw_events(vec![RawInputEvent::Paste("fix the flaky test".into())]);
+    let outcome = state.handle_raw_events(vec![RawInputEvent::Key(
+        crate::input::TerminalKey::new(KeyCode::Enter, KeyModifiers::empty()),
+    )]);
 
     let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
         panic!("new agent should use the endpoint API");
@@ -584,9 +595,10 @@ fn feature_header_menu_starts_an_agent_in_that_feature() {
         crate::api::schema::Method::FeatureStartAgent(
             crate::api::schema::FeatureStartAgentParams {
                 workspace_id: "ws_1".into(),
-                feature: crate::api::schema::FeatureChoice::Existing {
+                feature: Some(crate::api::schema::FeatureChoice::Existing {
                     feature_id: "feature-1".into(),
-                },
+                }),
+                prompt: Some("fix the flaky test".into()),
             }
         )
     );

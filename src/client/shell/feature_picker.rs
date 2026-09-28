@@ -4,7 +4,7 @@
 use crossterm::event::KeyCode;
 
 use super::*;
-use crate::api::schema::{FeatureChoice, FeatureStartAgentParams, Method};
+use crate::api::schema::FeatureChoice;
 
 #[derive(Debug)]
 pub(super) struct ClientFeaturePickerOverlay {
@@ -17,13 +17,21 @@ pub(super) struct ClientFeaturePickerOverlay {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum FeaturePickerChoice {
-    Existing { feature_id: String, name: String },
-    Create { name: String },
+    /// No feature yet: the task says where the agent belongs.
+    InTask,
+    Existing {
+        feature_id: String,
+        name: String,
+    },
+    Create {
+        name: String,
+    },
 }
 
 impl ClientFeaturePickerOverlay {
-    /// A "create" entry leads while the query names no existing feature,
-    /// followed by the features whose name contains the query.
+    /// "Say it in the task" leads while nothing is typed; a "create" entry
+    /// leads while the query names no existing feature; then the features whose
+    /// name contains the query.
     pub(super) fn choices(&self) -> Vec<FeaturePickerChoice> {
         let query = self.query.trim();
         let lowered = query.to_lowercase();
@@ -42,7 +50,12 @@ impl ClientFeaturePickerOverlay {
                 feature_id: feature_id.clone(),
                 name: name.clone(),
             });
-        create.into_iter().chain(existing).collect()
+        let agent_decides = query.is_empty().then_some(FeaturePickerChoice::InTask);
+        agent_decides
+            .into_iter()
+            .chain(create)
+            .chain(existing)
+            .collect()
     }
 
     fn move_selection(&mut self, delta: isize) {
@@ -123,19 +136,35 @@ impl ClientShellState {
             return;
         };
         let feature = match choice {
+            FeaturePickerChoice::InTask => None,
             FeaturePickerChoice::Existing { feature_id, .. } => {
-                FeatureChoice::Existing { feature_id }
+                Some(FeatureChoice::Existing { feature_id })
             }
-            FeaturePickerChoice::Create { name } => FeatureChoice::New { name },
+            FeaturePickerChoice::Create { name } => Some(FeatureChoice::New { name }),
         };
-        self.push_endpoint_method(
-            Method::FeatureStartAgent(FeatureStartAgentParams {
-                workspace_id: picker.workspace_id,
-                feature,
-            }),
-            outcome,
-        );
+        self.open_new_agent_task(picker.workspace_id, feature);
         outcome.repaint = true;
+    }
+
+    /// Asks for the new agent's task. Optional when a feature is chosen;
+    /// required without one, since the task says where the agent belongs.
+    pub(super) fn open_new_agent_task(
+        &mut self,
+        workspace_id: String,
+        feature: Option<FeatureChoice>,
+    ) {
+        let title = match feature {
+            Some(_) => "task for the new agent (optional)",
+            None => "task for the new agent",
+        };
+        self.overlay = Some(ClientShellOverlay::Rename(ClientRenameOverlay {
+            title,
+            input: TextEditor::default(),
+            target: ClientRenameTarget::NewAgentTask {
+                workspace_id,
+                feature,
+            },
+        }));
     }
 }
 
@@ -163,10 +192,11 @@ mod tests {
     }
 
     #[test]
-    fn empty_query_lists_all_features() {
+    fn empty_query_offers_in_task_then_all_features() {
         assert_eq!(
             picker("").choices(),
             [
+                FeaturePickerChoice::InTask,
                 existing("feature-1", "Checkout"),
                 existing("feature-2", "Billing")
             ]

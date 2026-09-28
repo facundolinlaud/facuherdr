@@ -72,6 +72,9 @@ pub(super) fn render_feature_picker_overlay(
         };
         b.set_style(rect, style);
         let label = match choice {
+            FeaturePickerChoice::InTask => {
+                " ✦ no feature: say where it goes in the task".to_string()
+            }
             FeaturePickerChoice::Existing { name, .. } => format!(" {name}"),
             FeaturePickerChoice::Create { name } => format!(" + create \"{name}\""),
         };

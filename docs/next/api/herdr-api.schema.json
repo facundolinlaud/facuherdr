@@ -2277,7 +2277,22 @@
         "FeatureStartAgentParams": {
           "properties": {
             "feature": {
-              "$ref": "#/schemas/request/$defs/FeatureChoice"
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/request/$defs/FeatureChoice"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Feature to file the agent under. Absent starts it ungrouped, with the\nfeature commands given as context before `prompt`, which is then required."
+            },
+            "prompt": {
+              "description": "Task handed to the agent as its first message.",
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "workspace_id": {
               "description": "Space the new agent's space takes its starting directory from.",
@@ -2285,8 +2300,7 @@
             }
           },
           "required": [
-            "workspace_id",
-            "feature"
+            "workspace_id"
           ],
           "type": "object"
         },
@@ -5586,6 +5600,22 @@
         {
           "properties": {
             "method": {
+              "const": "feature.list",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/EmptyParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "feature.create",
               "type": "string"
             },
@@ -7747,6 +7777,29 @@
           ],
           "type": "string"
         },
+        "FeatureInfo": {
+          "properties": {
+            "feature_id": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "pane_ids": {
+              "description": "Member pane ids in display order.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "feature_id",
+            "name",
+            "pane_ids"
+          ],
+          "type": "object"
+        },
         "InstalledPluginInfo": {
           "properties": {
             "actions": {
@@ -9819,8 +9872,31 @@
             },
             {
               "properties": {
-                "feature_id": {
+                "features": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/FeatureInfo"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "feature_list",
                   "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "features"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "feature_id": {
+                  "description": "Absent when the agent starts without a feature.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "pane_id": {
                   "type": "string"
@@ -9832,7 +9908,6 @@
               },
               "required": [
                 "type",
-                "feature_id",
                 "pane_id"
               ],
               "type": "object"

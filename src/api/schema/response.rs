@@ -117,8 +117,13 @@ pub enum ResponseResult {
     FeatureCreated {
         feature_id: String,
     },
+    FeatureList {
+        features: Vec<super::features::FeatureInfo>,
+    },
     FeatureAgentStarted {
-        feature_id: String,
+        /// Absent when the agent starts without a feature.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        feature_id: Option<String>,
         pane_id: String,
     },
     PaneInfo {

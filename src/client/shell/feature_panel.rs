@@ -19,8 +19,12 @@ use crate::api::schema::{AgentStatus, FeatureAssignPaneParams, FeatureMoveParams
 use crate::protocol::ClientShellFeature;
 
 const AGENT_INDENT: u16 = 2;
-/// Metadata token an agent reports to label its account, e.g. `facundolilao (45%)`.
-const ACCOUNT_TOKEN: &str = "account";
+/// Metadata token an agent of `kind` reports to label its account, e.g.
+/// `claude_account` = `facundo (45%) | opus 5.5`. Keying it by agent kind keeps a
+/// label left by an earlier agent in the same pane off the current one's row.
+fn account_token(kind: &str) -> String {
+    format!("{kind}_account")
+}
 
 /// What a panel row stands for. Hit-testing and drag and drop use it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -159,25 +163,35 @@ fn section_fold(
     }
 }
 
-/// The agent's name: the pane name the user set, else the agent's own name,
-/// else the name of the space it lives in.
+/// The row title: the name of the agent's space, so renaming the space renames
+/// the row. When several agents share a space, the agent's own name (or its
+/// tab) tells them apart.
 fn agent_name(snapshot: &ClientShellSnapshot, agent: &crate::protocol::ClientShellAgent) -> String {
-    let pane_name = snapshot
-        .panes
+    let space = snapshot
+        .workspaces
         .iter()
-        .find(|pane| pane.pane_id == agent.pane_id)
-        .and_then(|pane| pane.label.clone());
-    let space_name = || {
+        .find(|workspace| workspace.workspace_id == agent.workspace_id)
+        .map(|workspace| workspace.label.clone())
+        .unwrap_or_default();
+    let agents_in_space = snapshot
+        .agents
+        .iter()
+        .filter(|candidate| candidate.workspace_id == agent.workspace_id)
+        .count();
+    if agents_in_space < 2 {
+        return space;
+    }
+    let tab = || {
         snapshot
-            .workspaces
+            .tabs
             .iter()
-            .find(|workspace| workspace.workspace_id == agent.workspace_id)
-            .map(|workspace| workspace.label.clone())
-            .unwrap_or_default()
+            .find(|tab| tab.tab_id == agent.tab_id)
+            .map(|tab| tab.label.clone())
     };
-    pane_name
-        .or_else(|| agent.name.clone())
-        .unwrap_or_else(space_name)
+    match agent.name.clone().or_else(tab) {
+        Some(detail) => format!("{space} · {detail}"),
+        None => space,
+    }
 }
 
 /// Status icon and name, with the reported account label on a second line
@@ -197,10 +211,11 @@ fn feature_agent_row(snapshot: &ClientShellSnapshot, pane_id: &str) -> Option<Ag
         token(ResolvedTokenKind::StateIcon),
         token(ResolvedTokenKind::Label(agent_name(snapshot, agent))),
     ];
+    let account_token = agent.agent.as_deref().map(account_token);
     let account_line = agent
         .tokens
         .iter()
-        .find(|(name, _)| name == ACCOUNT_TOKEN)
+        .find(|(name, _)| Some(name) == account_token.as_ref())
         .map(|(_, value)| vec![token(ResolvedTokenKind::Custom(value.clone()))]);
     let rows = std::iter::once(name_line).chain(account_line).collect();
     Some(AgentRow {
@@ -398,6 +413,10 @@ fn render_header(
         1,
         Style::default().fg(config.palette.accent),
     );
+    // A theme color every palette defines, so headers stand apart from agent
+    // rows. Applied last: writing a wide character such as an emoji resets the
+    // background of the cell it spills into.
+    buffer.set_style(rect, Style::default().bg(config.palette.surface0));
     hits.feature_section_toggles.push((toggle, section));
 }
 
@@ -768,7 +787,11 @@ mod tests {
     ) -> (Vec<String>, ShellHitMap, ClientShellConfig) {
         let mut snapshot = snapshot_with_agents(&["pane_1", "pane_2"]);
         snapshot.agents[1].agent_status = AgentStatus::Working;
-        snapshot.agents[1].tokens = vec![("account".into(), "facundolilao (45%)".into())];
+        snapshot.agents[1].agent = Some("claude".into());
+        snapshot.agents[1].tokens = vec![
+            ("claude_account".into(), "facundolilao (45%)".into()),
+            ("codex_account".into(), "left by an earlier codex".into()),
+        ];
         snapshot.features = vec![feature("feature-1", &["pane_2"])];
         snapshot.features[0].name = "checkout".into();
         let config = ClientShellConfig::from_config(&crate::config::Config::default());
@@ -811,10 +834,10 @@ mod tests {
         let idle = status_icon(AgentStatus::Idle, config.status_indicators);
         let working = status_icon(AgentStatus::Working, config.status_indicators);
         assert_eq!(lines[0], padded(" checkout", "▾"));
-        assert_eq!(lines[1], format!("   {working} pane_2"));
+        assert_eq!(lines[1], format!("   {working} client-shell · pane_2"));
         assert_eq!(lines[2], "     facundolilao (45%)");
         assert_eq!(lines[3], padded(" ungrouped", "▾"));
-        assert_eq!(lines[4], format!("   {idle} pane_1"));
+        assert_eq!(lines[4], format!("   {idle} client-shell · pane_1"));
         assert_eq!(hits.agents.len(), 2);
         assert_eq!(hits.feature_section_toggles.len(), 2);
     }
@@ -831,7 +854,7 @@ mod tests {
         let working = status_icon(AgentStatus::Working, config.status_indicators);
         assert_eq!(lines[0], padded(&format!(" checkout (1) {working}"), "▸"));
         assert_eq!(lines[1], padded(" ungrouped", "▾"));
-        assert_eq!(lines[2], format!("   {idle} pane_1"));
+        assert_eq!(lines[2], format!("   {idle} client-shell · pane_1"));
         assert_eq!(hits.agents.len(), 1);
     }
 
@@ -876,20 +899,47 @@ mod tests {
     }
 
     #[test]
-    fn agent_name_prefers_pane_name_then_agent_name_then_location() {
+    fn agent_name_is_the_space_name_unless_agents_share_the_space() {
         let mut snapshot = snapshot_with_agents(&["pane_1"]);
-        snapshot.panes[0].pane_id = "pane_1".into();
-        snapshot.panes[0].label = Some("checkout-api".into());
-        let agent = snapshot.agents[0].clone();
-        assert_eq!(agent_name(&snapshot, &agent), "checkout-api");
+        let alone = snapshot.agents[0].clone();
+        assert_eq!(agent_name(&snapshot, &alone), "client-shell");
 
-        snapshot.panes[0].label = None;
-        assert_eq!(agent_name(&snapshot, &agent), "pane_1");
-
-        let unnamed = crate::protocol::ClientShellAgent {
+        let sibling = crate::protocol::ClientShellAgent {
+            pane_id: "pane_2".into(),
             name: None,
-            ..agent
+            ..alone.clone()
         };
-        assert_eq!(agent_name(&snapshot, &unnamed), "client-shell");
+        snapshot.agents.push(sibling.clone());
+        assert_eq!(agent_name(&snapshot, &alone), "client-shell · pane_1");
+        assert_eq!(agent_name(&snapshot, &sibling), "client-shell · 1");
+    }
+
+    #[test]
+    fn headers_get_the_theme_surface_background_and_keep_emoji_names_aligned() {
+        let mut snapshot = snapshot_with_agents(&[]);
+        snapshot.features = vec![feature("feature-1", &[])];
+        snapshot.features[0].name = "🚀 launch".into();
+        let config = ClientShellConfig::from_config(&crate::config::Config::default());
+        let area = Rect::new(0, 0, 20, 6);
+        let mut buffer = Buffer::empty(area);
+        let mut hits = ShellHitMap::default();
+
+        render_feature_panel_body(
+            &mut buffer,
+            area,
+            &snapshot,
+            &config,
+            &mut 0,
+            &HashSet::new(),
+            None,
+            &mut hits,
+        );
+
+        let header_y = 3;
+        assert!((0..area.width).all(|x| buffer[(x, header_y)].bg == config.palette.surface0));
+        assert_eq!(buffer[(1, header_y)].symbol(), "🚀");
+        assert_eq!(buffer[(4, header_y)].symbol(), "l");
+        assert_eq!(buffer[(area.width - 1, header_y)].symbol(), "▾");
+        assert_ne!(buffer[(0, header_y + 1)].bg, config.palette.surface0);
     }
 }

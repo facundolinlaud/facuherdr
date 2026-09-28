@@ -983,6 +983,21 @@ impl ClientShellState {
                     label: Some(trimmed.to_owned()),
                 },
             )),
+            ClientRenameTarget::NewAgentTask {
+                workspace_id,
+                feature,
+            } => {
+                let prompt = (!trimmed.is_empty()).then(|| trimmed.to_owned());
+                // Without a feature, the task is what says where the agent belongs.
+                let startable = feature.is_some() || prompt.is_some();
+                startable.then_some(crate::api::schema::Method::FeatureStartAgent(
+                    crate::api::schema::FeatureStartAgentParams {
+                        workspace_id,
+                        feature,
+                        prompt,
+                    },
+                ))
+            }
             ClientRenameTarget::NewFeature => (!trimmed.is_empty()).then(|| {
                 crate::api::schema::Method::FeatureCreate(crate::api::schema::FeatureCreateParams {
                     name: trimmed.to_owned(),

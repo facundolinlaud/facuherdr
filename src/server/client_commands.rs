@@ -326,7 +326,7 @@ mod tests {
             ),
             (
                 "feature.start_agent",
-                "5af37a581473d8abfac675152da903754a32d6de504f00f46a38e1b593932c9a",
+                "aa9be4134c01a3a4c02f192edc00a7fca57cd009da31030fcc35cdab6f4d3333",
             ),
         ] {
             assert_eq!(actual.remove(method).as_deref(), Some(digest), "{method}");

@@ -1913,7 +1913,9 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
-                let agent_pane_id = self
+                // An agent row is titled by its space, so its menu is the space's
+                // menu: Rename there renames the row.
+                let agent_workspace_id = self
                     .hits
                     .feature_panel_rows
                     .iter()
@@ -1924,9 +1926,17 @@ impl ClientShellState {
                             Some(pane_id.clone())
                         }
                         _ => None,
+                    })
+                    .and_then(|pane_id| {
+                        let snapshot = self.snapshot.as_deref()?;
+                        snapshot
+                            .agents
+                            .iter()
+                            .find(|agent| agent.pane_id == pane_id)
+                            .map(|agent| agent.workspace_id.clone())
                     });
-                if let Some(pane_id) = agent_pane_id {
-                    self.open_pane_context_menu(pane_id, mouse.column, mouse.row);
+                if let Some(workspace_id) = agent_workspace_id {
+                    self.open_workspace_context_menu(workspace_id, mouse.column, mouse.row);
                     outcome.repaint = true;
                     return;
                 }

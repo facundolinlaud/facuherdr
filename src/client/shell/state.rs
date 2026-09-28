@@ -333,6 +333,11 @@ pub(super) enum ClientRenameTarget {
         feature_id: String,
     },
     NewFeature,
+    /// The task for a new agent. Without a feature, the task says where it belongs.
+    NewAgentTask {
+        workspace_id: String,
+        feature: Option<crate::api::schema::FeatureChoice>,
+    },
 }
 
 #[derive(Debug)]

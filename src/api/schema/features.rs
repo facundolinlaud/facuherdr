@@ -1,6 +1,14 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct FeatureInfo {
+    pub feature_id: String,
+    pub name: String,
+    /// Member pane ids in display order.
+    pub pane_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct FeatureCreateParams {
     pub name: String,
 }
@@ -46,7 +54,13 @@ pub struct FeatureInheritParams {
 pub struct FeatureStartAgentParams {
     /// Space the new agent's space takes its starting directory from.
     pub workspace_id: String,
-    pub feature: FeatureChoice,
+    /// Feature to file the agent under. Absent starts it ungrouped, with the
+    /// feature commands given as context before `prompt`, which is then required.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feature: Option<FeatureChoice>,
+    /// Task handed to the agent as its first message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

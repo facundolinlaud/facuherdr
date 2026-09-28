@@ -25,6 +25,27 @@ fn feature_result(id: String, result: Result<(), FeatureError>) -> String {
 }
 
 impl App {
+    pub(super) fn handle_feature_list(&mut self, id: String) -> String {
+        let features = self
+            .state
+            .features
+            .iter()
+            .map(|feature| crate::api::schema::FeatureInfo {
+                feature_id: feature.id.clone(),
+                name: feature.name.clone(),
+                pane_ids: feature
+                    .members
+                    .iter()
+                    .filter_map(|&pane_id| {
+                        let (ws_idx, _) = self.find_pane(pane_id)?;
+                        self.public_pane_id(ws_idx, pane_id)
+                    })
+                    .collect(),
+            })
+            .collect();
+        encode_success(id, ResponseResult::FeatureList { features })
+    }
+
     pub(super) fn handle_feature_create(
         &mut self,
         id: String,
@@ -96,9 +117,11 @@ impl App {
         encode_success(id, ResponseResult::Ok {})
     }
 
-    /// Opens a new space, types the configured agent command into it, and files
-    /// the pane under the chosen feature. A feature created by this call is
-    /// removed again when the agent cannot be started.
+    /// Opens a new space, types the configured agent command into it (with the
+    /// task as its first message), and files the pane under the chosen feature.
+    /// Without a feature, the task is prefixed with the feature commands so the
+    /// user's message can say where the agent belongs. A feature created by
+    /// this call is removed again when the agent cannot be started.
     pub(super) fn handle_feature_start_agent(
         &mut self,
         id: String,
@@ -111,30 +134,55 @@ impl App {
                 format!("workspace {} not found", params.workspace_id),
             );
         };
-        let (feature_id, created_feature) = match params.feature {
-            FeatureChoice::Existing { feature_id } => match self.state.feature_index(&feature_id) {
-                Ok(_) => (feature_id, false),
-                Err(error) => return feature_error(id, error),
-            },
-            FeatureChoice::New { name } => match self.state.create_feature(&name) {
-                Ok(feature_id) => (feature_id, true),
-                Err(error) => return feature_error(id, error),
-            },
-        };
-        let (agent_ws_idx, pane_id) = match self.open_agent_space(ws_idx) {
+        let task = params
+            .prompt
+            .as_deref()
+            .map(str::trim)
+            .filter(|task| !task.is_empty());
+        let target =
+            match params.feature {
+                Some(FeatureChoice::Existing { feature_id }) => {
+                    match self.state.feature_index(&feature_id) {
+                        Ok(_) => AgentFeature::Existing(feature_id),
+                        Err(error) => return feature_error(id, error),
+                    }
+                }
+                Some(FeatureChoice::New { name }) => match self.state.create_feature(&name) {
+                    Ok(feature_id) => AgentFeature::Created(feature_id),
+                    Err(error) => return feature_error(id, error),
+                },
+                None if task.is_some() => AgentFeature::ChosenByUser,
+                None => return encode_error(
+                    id,
+                    "invalid_params",
+                    "an agent started without a feature needs a task that says where it belongs",
+                ),
+            };
+        let command_line = agent_command_line(
+            &self.state.new_agent_command,
+            task,
+            target == AgentFeature::ChosenByUser,
+        );
+        let (agent_ws_idx, pane_id) = match self.open_agent_space(ws_idx, &command_line) {
             Ok(opened) => opened,
             Err(err) => {
-                if created_feature {
+                if let AgentFeature::Created(feature_id) = &target {
                     // Undo only what this call created; the feature id was just issued.
-                    let _ = self.state.delete_feature(&feature_id);
+                    let _ = self.state.delete_feature(feature_id);
                 }
                 return encode_error(id, "feature_agent_start_failed", err.to_string());
             }
         };
-        // The feature was validated or created above, so assignment cannot fail.
-        let _ = self
-            .state
-            .assign_pane_to_feature(pane_id, Some(&feature_id), None);
+        let feature_id = match target {
+            AgentFeature::Existing(feature_id) | AgentFeature::Created(feature_id) => {
+                // The feature was validated or created above, so assignment cannot fail.
+                let _ = self
+                    .state
+                    .assign_pane_to_feature(pane_id, Some(&feature_id), None);
+                Some(feature_id)
+            }
+            AgentFeature::ChosenByUser => None,
+        };
         self.schedule_session_save();
         self.emit_workspace_open_events(agent_ws_idx);
         match self.public_pane_id(agent_ws_idx, pane_id) {
@@ -150,11 +198,12 @@ impl App {
     }
 
     /// Opens a focused space that starts where `source_ws_idx` would start a
-    /// new space, types the configured agent command into its shell, and
-    /// returns the space index and its root pane.
+    /// new space, types `command_line` into its shell, and returns the space
+    /// index and its root pane.
     fn open_agent_space(
         &mut self,
         source_ws_idx: usize,
+        command_line: &str,
     ) -> std::io::Result<(usize, crate::layout::PaneId)> {
         let cwd = self.resolved_new_workspace_cwd_from(source_ws_idx);
         let ws_idx = self.create_workspace_with_launch_env(cwd, true, Vec::new())?;
@@ -163,13 +212,50 @@ impl App {
             .state
             .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
             .ok_or_else(|| std::io::Error::other("new agent space has no terminal"))?;
-        let command = self.state.new_agent_command.clone();
-        let bytes = crate::app::api_helpers::encode_api_submission(runtime, &command);
+        let bytes = crate::app::api_helpers::encode_api_submission(runtime, command_line);
         runtime
             .try_send_bytes(Bytes::from(bytes))
             .map_err(|err| std::io::Error::other(err.to_string()))?;
         Ok((ws_idx, pane_id))
     }
+}
+
+/// Where a started agent is filed.
+#[derive(Debug, PartialEq, Eq)]
+enum AgentFeature {
+    Existing(String),
+    /// Created by this request, so undone if the agent cannot start.
+    Created(String),
+    /// None yet: the user's task says where the agent belongs.
+    ChosenByUser,
+}
+
+/// Context only: the user's own message says whether and where to file the agent.
+const FEATURE_COMMANDS: &str = "Context: you run in Herdr, which groups agents into \
+feature groups in its sidebar. You are not in one yet. Commands: \
+\"${HERDR_BIN_PATH:-herdr}\" feature list shows the existing feature groups; \
+\"${HERDR_BIN_PATH:-herdr}\" feature join \"<name>\" moves you into one; adding --create \
+creates it first. Message from the user:";
+
+/// The line typed into the new agent's shell: the configured command, then the
+/// task as one shell-quoted argument so the agent starts with it as its first
+/// message.
+fn agent_command_line(command: &str, task: Option<&str>, ungrouped: bool) -> String {
+    let Some(task) = task else {
+        return command.to_string();
+    };
+    let message = if ungrouped {
+        format!("{FEATURE_COMMANDS} {task}")
+    } else {
+        task.to_string()
+    };
+    format!("{command} {}", shell_single_quote(&message))
+}
+
+/// Quotes text for a POSIX shell: single quotes, with each embedded single quote
+/// written as '\''.
+fn shell_single_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
 }
 
 #[cfg(test)]
@@ -248,13 +334,55 @@ mod tests {
             &mut app,
             Method::FeatureStartAgent(FeatureStartAgentParams {
                 workspace_id: "missing".into(),
-                feature: FeatureChoice::New {
+                feature: Some(FeatureChoice::New {
                     name: "checkout".into(),
-                },
+                }),
+                prompt: None,
             }),
         );
 
         assert_eq!(response["error"]["code"], "workspace_not_found");
         assert!(app.state.features.is_empty());
+    }
+
+    #[test]
+    fn command_line_without_task_is_the_configured_command() {
+        assert_eq!(super::agent_command_line("claude", None, false), "claude");
+    }
+
+    #[test]
+    fn command_line_passes_the_task_as_one_quoted_argument() {
+        assert_eq!(
+            super::agent_command_line("claude", Some("fix Bob's bug"), false),
+            "claude 'fix Bob'\\''s bug'"
+        );
+    }
+
+    #[test]
+    fn ungrouped_agent_gets_the_feature_commands_as_context_before_the_message() {
+        let line = super::agent_command_line("claude", Some("fix it"), true);
+
+        assert!(line.starts_with("claude 'Context: you run in Herdr"));
+        assert!(line.contains("feature list") && line.contains("feature join"));
+        assert!(!line.contains("Before anything else"));
+        assert!(line.ends_with("Message from the user: fix it'"));
+    }
+
+    #[test]
+    fn ungrouped_agent_needs_a_task() {
+        let mut app = app_with_workspace();
+        let workspace_id = app.state.workspaces[0].id.clone();
+
+        let response = request(
+            &mut app,
+            Method::FeatureStartAgent(FeatureStartAgentParams {
+                workspace_id,
+                feature: None,
+                prompt: Some("  ".into()),
+            }),
+        );
+
+        assert_eq!(response["error"]["code"], "invalid_params");
+        assert_eq!(app.state.workspaces.len(), 1);
     }
 }

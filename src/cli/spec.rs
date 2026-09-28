@@ -300,10 +300,18 @@ fn tab_command() -> Command {
 fn feature_command() -> Command {
     Command::new("feature")
         .about("Manage agent feature groups over the socket API")
+        .subcommand(Command::new("list").about("List feature groups and their panes"))
         .subcommand(
             Command::new("create")
                 .about("Create an empty feature group")
                 .arg(required("name", "NAME").num_args(1..)),
+        )
+        .subcommand(
+            Command::new("join")
+                .about("Move a pane (this one by default) into a feature group by name")
+                .arg(required("name", "NAME").num_args(1..))
+                .arg(flag("create"))
+                .arg(option("pane", "PANE_ID")),
         )
 }
 

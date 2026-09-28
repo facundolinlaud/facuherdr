@@ -298,14 +298,9 @@ impl ClientShellState {
                     .as_deref()
                     .and_then(|snapshot| snapshot.focused_workspace_id.clone());
                 if let Some(workspace_id) = workspace_id {
-                    self.push_endpoint_method(
-                        crate::api::schema::Method::FeatureStartAgent(
-                            crate::api::schema::FeatureStartAgentParams {
-                                workspace_id,
-                                feature: crate::api::schema::FeatureChoice::Existing { feature_id },
-                            },
-                        ),
-                        outcome,
+                    self.open_new_agent_task(
+                        workspace_id,
+                        Some(crate::api::schema::FeatureChoice::Existing { feature_id }),
                     );
                 }
             }

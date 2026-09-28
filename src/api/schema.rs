@@ -141,6 +141,8 @@ pub enum Method {
     AgentPrompt(AgentPromptParams),
     #[serde(rename = "agent.wait")]
     AgentWait(AgentWaitParams),
+    #[serde(rename = "feature.list")]
+    FeatureList(EmptyParams),
     #[serde(rename = "feature.create")]
     FeatureCreate(FeatureCreateParams),
     #[serde(rename = "feature.rename")]

@@ -1079,6 +1079,7 @@ impl App {
             Method::TabRename(params) => return self.handle_tab_rename(request.id, params),
             Method::TabMove(params) => return self.handle_tab_move(request.id, params),
             Method::TabClose(target) => return self.handle_tab_close(request.id, target),
+            Method::FeatureList(_) => return self.handle_feature_list(request.id),
             Method::FeatureCreate(params) => return self.handle_feature_create(request.id, params),
             Method::FeatureRename(params) => return self.handle_feature_rename(request.id, params),
             Method::FeatureDelete(target) => return self.handle_feature_delete(request.id, target),

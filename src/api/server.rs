@@ -611,6 +611,7 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::AgentStart(_) => "agent.start",
         Method::AgentPrompt(_) => "agent.prompt",
         Method::AgentWait(_) => "agent.wait",
+        Method::FeatureList(_) => "feature.list",
         Method::FeatureCreate(_) => "feature.create",
         Method::FeatureRename(_) => "feature.rename",
         Method::FeatureDelete(_) => "feature.delete",
