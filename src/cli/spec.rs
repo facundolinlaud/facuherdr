@@ -40,6 +40,7 @@ pub(super) fn command() -> Command {
         .subcommand(workspace_command())
         .subcommand(worktree_command())
         .subcommand(tab_command())
+        .subcommand(feature_command())
         .subcommand(notification_command())
         .subcommand(agent_command())
         .subcommand(pane_command())
@@ -294,6 +295,16 @@ fn tab_command() -> Command {
                 .arg(required("label", "LABEL").num_args(1..)),
         )
         .subcommand(id_command("close", "tab_id", "Close a tab"))
+}
+
+fn feature_command() -> Command {
+    Command::new("feature")
+        .about("Manage agent feature groups over the socket API")
+        .subcommand(
+            Command::new("create")
+                .about("Create an empty feature group")
+                .arg(required("name", "NAME").num_args(1..)),
+        )
 }
 
 fn notification_command() -> Command {

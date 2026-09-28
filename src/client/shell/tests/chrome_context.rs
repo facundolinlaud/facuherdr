@@ -591,3 +591,68 @@ fn feature_header_menu_starts_an_agent_in_that_feature() {
         )
     );
 }
+
+#[test]
+fn feature_panel_empty_space_menu_creates_an_empty_feature() {
+    let mut config = ClientShellConfig::from_config(&Config::default());
+    config.agent_panel_sort = crate::config::AgentPanelSortConfig::Features;
+    let mut state = ClientShellState::new(config);
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    state.compose(106, 30).expect("shell frame");
+    let body = state.hits.agent_body;
+    let below_rows = state
+        .hits
+        .feature_panel_rows
+        .iter()
+        .map(|(rect, _)| rect.bottom())
+        .max()
+        .unwrap_or(body.y);
+    assert!(below_rows < body.bottom(), "panel should have empty space");
+
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Right),
+        column: body.x + 1,
+        row: below_rows,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    let labels = match state.overlay.as_ref() {
+        Some(ClientShellOverlay::ContextMenu(menu)) => menu
+            .items()
+            .iter()
+            .map(|item| item.label)
+            .collect::<Vec<_>>(),
+        _ => panic!("feature panel context menu"),
+    };
+    assert_eq!(labels, ["New feature…"]);
+    state.compose(106, 30).expect("feature panel menu");
+    let new_feature = state.hits.context_menu_rows[0].0;
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: new_feature.x + 1,
+        row: new_feature.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::Rename(ClientRenameOverlay {
+            target: ClientRenameTarget::NewFeature,
+            ..
+        }))
+    ));
+
+    state.handle_raw_events(vec![RawInputEvent::Paste("live-subs".into())]);
+    let outcome = state.handle_raw_events(vec![RawInputEvent::Key(
+        crate::input::TerminalKey::new(KeyCode::Enter, KeyModifiers::empty()),
+    )]);
+
+    let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+        panic!("new feature should use the endpoint API");
+    };
+    assert_eq!(
+        request.method,
+        crate::api::schema::Method::FeatureCreate(crate::api::schema::FeatureCreateParams {
+            name: "live-subs".into(),
+        })
+    );
+}

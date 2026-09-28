@@ -46,6 +46,7 @@ impl ClientContextMenuOverlay {
                 item("Rename", Action::Rename),
                 item("Close", Action::Close),
             ],
+            ClientContextMenuTarget::FeaturePanel => vec![item("New feature…", Action::NewFeature)],
             ClientContextMenuTarget::Feature { collapsed, .. } => vec![
                 item("New agent", Action::NewFeatureAgent),
                 item("Rename", Action::Rename),
@@ -176,6 +177,15 @@ impl ClientShellState {
         }));
     }
 
+    pub(super) fn open_feature_panel_context_menu(&mut self, x: u16, y: u16) {
+        self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
+            target: ClientContextMenuTarget::FeaturePanel,
+            x,
+            y,
+            highlighted: 0,
+        }));
+    }
+
     pub(super) fn open_feature_context_menu(&mut self, feature_id: String, x: u16, y: u16) {
         let collapsed = self.collapsed_feature_sections.contains(
             &super::feature_panel::FeatureSection::Feature {
@@ -241,6 +251,15 @@ impl ClientShellState {
             ),
             ClientContextMenuTarget::Feature { feature_id, .. } => {
                 self.activate_feature_context_action(feature_id, action, outcome)
+            }
+            ClientContextMenuTarget::FeaturePanel => {
+                if action == ClientContextMenuAction::NewFeature {
+                    self.overlay = Some(ClientShellOverlay::Rename(ClientRenameOverlay {
+                        title: "new feature",
+                        input: TextEditor::default(),
+                        target: ClientRenameTarget::NewFeature,
+                    }));
+                }
             }
         }
         outcome.repaint = true;

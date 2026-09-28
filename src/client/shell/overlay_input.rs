@@ -983,6 +983,11 @@ impl ClientShellState {
                     label: Some(trimmed.to_owned()),
                 },
             )),
+            ClientRenameTarget::NewFeature => (!trimmed.is_empty()).then(|| {
+                crate::api::schema::Method::FeatureCreate(crate::api::schema::FeatureCreateParams {
+                    name: trimmed.to_owned(),
+                })
+            }),
             ClientRenameTarget::Feature { feature_id } => (!trimmed.is_empty()).then(|| {
                 crate::api::schema::Method::FeatureRename(crate::api::schema::FeatureRenameParams {
                     feature_id,

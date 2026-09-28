@@ -332,6 +332,7 @@ pub(super) enum ClientRenameTarget {
     Feature {
         feature_id: String,
     },
+    NewFeature,
 }
 
 #[derive(Debug)]
@@ -544,6 +545,7 @@ pub(super) enum ClientContextMenuAction {
     ClosePane,
     NewFeatureAgent,
     DeleteFeature,
+    NewFeature,
 }
 
 #[derive(Debug)]
@@ -570,6 +572,7 @@ pub(super) enum ClientContextMenuTarget {
         feature_id: String,
         collapsed: bool,
     },
+    FeaturePanel,
 }
 
 #[derive(Debug)]

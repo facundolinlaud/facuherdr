@@ -508,6 +508,30 @@ impl ClientShellState {
         Some(last_index + 1)
     }
 
+    /// The "ungrouped" header, or panel space no row covers, while the
+    /// features view is showing.
+    fn feature_panel_has_open_space_at(&self, point: (u16, u16)) -> bool {
+        let showing_features = self.config.agent_panel_sort
+            == crate::config::AgentPanelSortConfig::Features
+            && self.supports_feature_groups()
+            && self
+                .snapshot
+                .as_deref()
+                .is_some_and(|snapshot| snapshot.agent_view_label.is_none());
+        let row = self
+            .hits
+            .feature_panel_rows
+            .iter()
+            .find(|(rect, _)| super::contains(*rect, point))
+            .map(|(_, item)| item);
+        showing_features
+            && super::contains(self.hits.agent_body, point)
+            && matches!(
+                row,
+                None | Some(super::feature_panel::FeaturePanelItem::Ungrouped)
+            )
+    }
+
     fn feature_panel_drop_at(
         &self,
         item: &super::feature_panel::FeaturePanelItem,
@@ -1920,6 +1944,11 @@ impl ClientShellState {
                     });
                 if let Some(feature_id) = feature_id {
                     self.open_feature_context_menu(feature_id, mouse.column, mouse.row);
+                    outcome.repaint = true;
+                    return;
+                }
+                if self.feature_panel_has_open_space_at(point) {
+                    self.open_feature_panel_context_menu(mouse.column, mouse.row);
                     outcome.repaint = true;
                     return;
                 }

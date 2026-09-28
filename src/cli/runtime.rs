@@ -87,6 +87,12 @@ pub(super) fn workspace_close(params: WorkspaceCloseParams) -> std::io::Result<i
     print_method_response("cli:workspace:close", Method::WorkspaceClose(params))
 }
 
+pub(super) fn feature_create(
+    params: crate::api::schema::FeatureCreateParams,
+) -> std::io::Result<i32> {
+    print_method_response("cli:feature:create", Method::FeatureCreate(params))
+}
+
 pub(super) fn tab_list(params: TabListParams) -> std::io::Result<i32> {
     print_method_response("cli:tab:list", Method::TabList(params))
 }
