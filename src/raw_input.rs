@@ -151,6 +151,10 @@ pub(crate) struct RawInputByteFramer {
     host_appearance_query_on_focus: bool,
     split_coalesced_escape: bool,
     host_escape_disambiguation_active: bool,
+    // A lone ESC that waited past an input timeout while disambiguation is
+    // active. Only such a stale ESC is dropped before the next input; an ESC
+    // that arrives together with a letter is a legacy Alt key (ESC b).
+    stale_lone_escape: bool,
 }
 
 const HOST_COLOR_QUERY_REPLIES: u16 = 258;
@@ -284,6 +288,7 @@ impl RawInputByteFramer {
         if self.host_escape_disambiguation_active
             && starts_with_bounded_incomplete_escape_sequence(&self.buffer)
         {
+            self.stale_lone_escape = self.buffer == [ESC];
             tracing::trace!(
                 len = self.buffer.len(),
                 "holding incomplete host escape sequence with disambiguation active"
@@ -496,7 +501,10 @@ impl RawInputByteFramer {
                 continue;
             }
 
+            let stale_lone_escape = self.stale_lone_escape;
+            self.stale_lone_escape = false;
             if self.host_escape_disambiguation_active
+                && stale_lone_escape
                 && self.buffer.first() == Some(&ESC)
                 && self.buffer.len() > 1
                 && !starts_with_known_escape_introducer(&self.buffer)
@@ -2114,6 +2122,28 @@ mod tests {
             KeyCode::Char('x'),
             KeyModifiers::empty(),
         );
+    }
+
+    #[test]
+    fn confirmed_host_disambiguation_reads_escape_letter_pairs_as_alt_keys() {
+        // Terminals send Option+Left/Right as ESC b / ESC f even in kitty mode
+        // (e.g. Ghostty's default keybinds), so a pair arriving together is an
+        // Alt key, not a stale escape.
+        for (bytes, letter) in [(b"\x1bb".as_slice(), 'b'), (b"\x1bf".as_slice(), 'f')] {
+            let mut framer = RawInputFramer::default();
+            framer
+                .byte_framer
+                .set_host_escape_disambiguation_active(true);
+
+            let events = framer.push(bytes);
+
+            assert_eq!(events.len(), 1);
+            assert_raw_key(
+                events.into_iter().next().unwrap(),
+                KeyCode::Char(letter),
+                KeyModifiers::ALT,
+            );
+        }
     }
 
     #[test]
