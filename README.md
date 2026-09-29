@@ -34,7 +34,9 @@ side with an official `herdr` install. The original Herdr README follows
 
 - `prefix+a` (`keys.new_agent`) opens a picker: choose a feature, type a new name to create
   one, or pick **"no feature: say where it goes in the task"**. Then type the agent's task.
-- Every new agent gets **its own space**, started with `terminal.new_agent_command`.
+- Every new agent gets **its own space**, named "new agent" and started with
+  `terminal.new_agent_command`. When you give a task, the agent is asked to rename its space
+  after it (`herdr workspace rename "$HERDR_WORKSPACE_ID" "<name>"`), which titles its row.
 - Without a feature, the task is sent with the feature commands as context (not as an
   instruction), so your message decides whether the agent joins an existing feature or creates
   one.
@@ -188,6 +190,31 @@ login instead. Use it for new agents (`terminal.new_agent_command` above) and, t
 ```sh
 herdr-start-claude <pane-id> <agent-name> [--account <profile>] [--feature <name>] [--timeout <s>] [-- <claude args>...]
 ```
+
+#### Rolling tokens and the clauth daemon
+
+`clauth start` sessions on the **active** account break with "OAuth session expired and could not
+be refreshed" when plain `claude` sessions share that account's login: each of their renewals
+invalidates the copy clauth hands to new sessions. The fix is clauth's rolling token, which
+gives sessions a short-lived bearer with nothing to renew, kept fresh by the clauth daemon:
+
+```sh
+clauth rolling-token <profile>     # once per account; refused while a clauth start session
+                                   # from before arming still holds the login: exit it first
+```
+
+The daemon must always run, or rolling tokens expire within hours. A LaunchAgent starts it at
+login and restarts it if it stops (`--standby` makes it wait when one is already running):
+
+```sh
+sed "s#__HOME__#$HOME#g" contrib/facuherdr/launchd/local.clauth-daemon.plist \
+  > ~/Library/LaunchAgents/local.clauth-daemon.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.clauth-daemon.plist
+clauth daemon --status   # running (pid …, feed fresh)
+```
+
+The daemon also auto-switches the active account when one is exhausted, per clauth's fallback
+chain; that moves plain `claude` sessions, not `clauth start` ones.
 
 Starts `clauth start <account>` in a pane (default account: the caller's own), waits until Herdr
 detects Claude, names the agent so `herdr agent prompt <name>` works, optionally files it under a

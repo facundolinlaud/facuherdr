@@ -173,6 +173,9 @@ impl App {
                 return encode_error(id, "feature_agent_start_failed", err.to_string());
             }
         };
+        // Otherwise the space would be named after its folder or branch, like
+        // every other space started there.
+        self.state.workspaces[agent_ws_idx].set_custom_name(NEW_AGENT_SPACE_NAME.to_string());
         let feature_id = match target {
             AgentFeature::Existing(feature_id) | AgentFeature::Created(feature_id) => {
                 // The feature was validated or created above, so assignment cannot fail.
@@ -230,25 +233,33 @@ enum AgentFeature {
     ChosenByUser,
 }
 
+/// Name a new agent's space starts with, until the agent (or the user) renames it.
+const NEW_AGENT_SPACE_NAME: &str = "new agent";
+
+/// Asks the agent to name its own space, which titles its row in the sidebar.
+const NAME_YOUR_SPACE: &str = "Context: you run in Herdr. First name your Herdr space after \
+this task in 2 to 4 words: \"${HERDR_BIN_PATH:-herdr}\" workspace rename \
+\"$HERDR_WORKSPACE_ID\" \"<name>\".";
+
 /// Context only: the user's own message says whether and where to file the agent.
-const FEATURE_COMMANDS: &str = "Context: you run in Herdr, which groups agents into \
-feature groups in its sidebar. You are not in one yet. Commands: \
-\"${HERDR_BIN_PATH:-herdr}\" feature list shows the existing feature groups; \
-\"${HERDR_BIN_PATH:-herdr}\" feature join \"<name>\" moves you into one; adding --create \
-creates it first. Message from the user:";
+const FEATURE_COMMANDS: &str = "Herdr groups agents into feature groups in its sidebar. You \
+are not in one yet. Commands: \"${HERDR_BIN_PATH:-herdr}\" feature list shows the existing \
+feature groups; \"${HERDR_BIN_PATH:-herdr}\" feature join \"<name>\" moves you into one; \
+adding --create creates it first.";
 
 /// The line typed into the new agent's shell: the configured command, then the
 /// task as one shell-quoted argument so the agent starts with it as its first
-/// message.
+/// message, after the Herdr context it needs.
 fn agent_command_line(command: &str, task: Option<&str>, ungrouped: bool) -> String {
     let Some(task) = task else {
         return command.to_string();
     };
-    let message = if ungrouped {
-        format!("{FEATURE_COMMANDS} {task}")
+    let feature_context = if ungrouped {
+        format!(" {FEATURE_COMMANDS}")
     } else {
-        task.to_string()
+        String::new()
     };
+    let message = format!("{NAME_YOUR_SPACE}{feature_context} Message from the user: {task}");
     format!("{command} {}", shell_single_quote(&message))
 }
 
@@ -352,10 +363,10 @@ mod tests {
 
     #[test]
     fn command_line_passes_the_task_as_one_quoted_argument() {
-        assert_eq!(
-            super::agent_command_line("claude", Some("fix Bob's bug"), false),
-            "claude 'fix Bob'\\''s bug'"
-        );
+        let line = super::agent_command_line("claude", Some("fix Bob's bug"), false);
+
+        assert!(line.starts_with("claude '"));
+        assert!(line.ends_with("Message from the user: fix Bob'\\''s bug'"));
     }
 
     #[test]
@@ -364,7 +375,6 @@ mod tests {
 
         assert!(line.starts_with("claude 'Context: you run in Herdr"));
         assert!(line.contains("feature list") && line.contains("feature join"));
-        assert!(!line.contains("Before anything else"));
         assert!(line.ends_with("Message from the user: fix it'"));
     }
 
@@ -384,5 +394,14 @@ mod tests {
 
         assert_eq!(response["error"]["code"], "invalid_params");
         assert_eq!(app.state.workspaces.len(), 1);
+    }
+
+    #[test]
+    fn agent_with_a_task_is_asked_to_name_its_space() {
+        let line = super::agent_command_line("claude", Some("fix it"), false);
+
+        assert!(line.contains("workspace rename"));
+        assert!(line.contains("$HERDR_WORKSPACE_ID"));
+        assert!(!line.contains("feature join"));
     }
 }
