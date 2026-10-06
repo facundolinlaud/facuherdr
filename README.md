@@ -115,8 +115,7 @@ new_agent = "prefix+a"          # the default
 
 [terminal]
 # Typed into each new agent's shell; the task, when given, is appended as one quoted argument.
-# With clauth, pin each agent to the account active when it starts:
-new_agent_command = 'clauth start "$(clauth which)"'
+new_agent_command = "claude"    # the default
 
 [update]
 version_check = false           # never suggest installing official Herdr over the fork
@@ -179,28 +178,35 @@ Register it in `~/.codex/hooks.json`, next to any existing hooks:
   run with `--no-daemon`. Source it from `~/.zshrc`. Those sessions are then not visible to the
   shared daemon's features (`codex agents`, remote control).
 
+### Starting Claude agents: `herdr-start-claude`
+
+Used by agents that start other agents:
+
+```sh
+herdr-start-claude <pane-id> <agent-name> [--feature <name>] [--timeout <s>] [-- <claude args>...]
+```
+
+Runs plain `claude` in a pane, waits until Herdr detects Claude, names the agent so
+`herdr agent prompt <name>` works, optionally files it under a feature (created if missing), and
+prints JSON. Codex agents keep using `herdr agent start <name> --kind codex --pane <id>`.
+
 ### clauth
 
 [clauth](https://crates.io/crates/clauth) (`cargo install clauth`) manages several Claude
-accounts. Plain `claude` sessions share one login, which clauth swaps when you change the active
-account, so every plain session moves with it. `clauth start <profile>` gives a session its own
-login instead. Use it for new agents (`terminal.new_agent_command` above) and, through
-`herdr-start-claude`, for agents started by other agents:
+accounts. New agents run plain `claude`, which reads the machine's one shared login: switching
+clauth's active account, by hand or through its fallback chain, moves every running agent to the
+new account on its next message, with no new login.
 
-```sh
-herdr-start-claude <pane-id> <agent-name> [--account <profile>] [--feature <name>] [--timeout <s>] [-- <claude args>...]
-```
+`clauth start <profile>` would pin an agent to one account, but on macOS (clauth 0.15–0.17) it
+signs agents out after a few hours: Claude keeps such a session's login in its own Keychain item,
+and clauth renews only the shared one. Hence plain `claude`.
 
-#### Rolling tokens and the clauth daemon
-
-`clauth start` sessions on the **active** account break with "OAuth session expired and could not
-be refreshed" when plain `claude` sessions share that account's login: each of their renewals
-invalidates the copy clauth hands to new sessions. The fix is clauth's rolling token, which
-gives sessions a short-lived bearer with nothing to renew, kept fresh by the clauth daemon:
+For switches to keep sessions signed in, give every account in the chain a rolling token, kept
+fresh by the clauth daemon:
 
 ```sh
 clauth rolling-token <profile>     # once per account; refused while a clauth start session
-                                   # from before arming still holds the login: exit it first
+                                   # still holds the login: exit it first
 ```
 
 The daemon must always run, or rolling tokens expire within hours. A LaunchAgent starts it at
@@ -213,13 +219,9 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.clauth-daemon.plis
 clauth daemon --status   # running (pid …, feed fresh)
 ```
 
-The daemon also auto-switches the active account when one is exhausted, per clauth's fallback
-chain; that moves plain `claude` sessions, not `clauth start` ones.
-
-Starts `clauth start <account>` in a pane (default account: the caller's own), waits until Herdr
-detects Claude, names the agent so `herdr agent prompt <name>` works, optionally files it under a
-feature (created if missing), and prints JSON. Codex agents keep using
-`herdr agent start <name> --kind codex --pane <id>`.
+clauth writes the shared login with `security -i`, which fails once the Keychain item passes
+about 4 KB; MCP server logins stored beside it count. Running agents then keep their old token
+and sign out when it expires. Sign out of MCP servers you no longer use to make room.
 
 ## Keeping up with upstream
 
@@ -234,8 +236,6 @@ facuherdr-dev                          # try it in the sandbox
 ## Known limitations
 
 - Codex agents show a grey status dot: Herdr's screen detection does not yet match Codex 0.157.
-- Claude agents that Herdr resumes after a restart run plain `claude`, so they use the shared
-  login rather than a pinned clauth account; the label shows which account they landed on.
 - Closing every space in a session also discards its saved feature groups.
 - If official Herdr ever runs a fork session, it drops the feature groups on its next save.
 

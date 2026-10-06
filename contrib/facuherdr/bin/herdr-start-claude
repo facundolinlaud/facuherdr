@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
-# Starts Claude Code in a Herdr pane under a clauth account, and names the agent.
+# Starts Claude Code in a Herdr pane and names the agent.
 #
 # Usage:
-#   herdr-start-claude <pane-id> <name> [--account <profile>] [--feature <name>] [--timeout <seconds>] [-- <claude args>...]
+#   herdr-start-claude <pane-id> <name> [--feature <name>] [--timeout <seconds>] [-- <claude args>...]
 #
-# The account is --account, else the caller's own clauth account (`clauth which`).
 # --feature files the agent under that feature group, creating it if needed;
 # without it the agent keeps whatever feature its pane already has.
-# The agent gets its own clauth login, so switching clauth's active account later
-# does not move it. Everything after `--` goes to claude, e.g. `-- --model opus`.
+# The agent runs plain `claude` on the machine's shared login, so it follows
+# clauth's active account. Everything after `--` goes to claude, e.g. `-- --model opus`.
 # Prints a JSON summary on success; exits non-zero naming the failed step.
 set -euo pipefail
 
-usage="usage: herdr-start-claude <pane-id> <name> [--account <profile>] [--feature <name>] [--timeout <seconds>] [-- <claude args>...]"
+usage="usage: herdr-start-claude <pane-id> <name> [--feature <name>] [--timeout <seconds>] [-- <claude args>...]"
 herdr_bin="${HERDR_BIN_PATH:-herdr}"
 
 fail() {
@@ -24,12 +23,10 @@ fail() {
 pane=$1
 name=$2
 shift 2
-account=""
 feature=""
 timeout=60
 while [ "$#" -gt 0 ]; do
   case $1 in
-    --account) account=${2:?"--account needs a profile"}; shift 2 ;;
     --feature) feature=${2:?"--feature needs a name"}; shift 2 ;;
     --timeout) timeout=${2:?"--timeout needs seconds"}; shift 2 ;;
     --) shift; break ;;
@@ -37,16 +34,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-command -v clauth >/dev/null 2>&1 || fail "clauth is not installed"
-if [ -z "$account" ]; then
-  account=$(clauth which 2>/dev/null || true)
-  if [ -z "$account" ] || [ "$account" = "unknown" ]; then
-    fail "cannot tell which clauth account to use; pass --account"
-  fi
-fi
-
 # The line typed into the pane's shell, every word quoted.
-command_line=$(printf '%q ' clauth start "$account" "$@")
+command_line=$(printf '%q ' claude "$@")
 "$herdr_bin" pane run "$pane" "$command_line" >/dev/null ||
   fail "could not type the start command into pane $pane"
 
@@ -65,5 +54,5 @@ if [ -n "$feature" ]; then
     fail "Claude started in pane $pane as '$name', but filing it under feature '$feature' failed; do not start it again"
 fi
 
-jq -n --arg pane "$pane" --arg name "$name" --arg account "$account" --arg feature "$feature" --arg command "$command_line" \
-  '{pane: $pane, name: $name, account: $account, feature: (if $feature == "" then null else $feature end), command: $command}'
+jq -n --arg pane "$pane" --arg name "$name" --arg feature "$feature" --arg command "$command_line" \
+  '{pane: $pane, name: $name, feature: (if $feature == "" then null else $feature end), command: $command}'
